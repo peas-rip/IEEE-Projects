@@ -103,19 +103,30 @@ Edit `configs/default.yaml` to change:
 
 ## Using the real dataset
 
-The paper's dataset (Guangzhou Women and Children's Medical Center / Kermany, 5,856 paediatric CXRs) is **not publicly downloadable** — it is available from the corresponding author upon reasonable request (paper, Data Availability section).
+The paper's dataset (Kermany / Guangzhou Women and Children's Medical Center, 5,856 paediatric CXRs) is gated behind an author request in the paper's Data Availability section — but the same underlying dataset is publicly available on Kaggle as **"Chest X-Ray Images (Pneumonia)"** (`paultimothymooney/chest-xray-pneumonia`), which is what this project trains on.
 
-To use it, place images in an ImageFolder layout:
+Class distributions (Kaggle copy):
 
-```
-dataset_root/
-    Normal/
-    Pneumonia/
-```
-(or `Bacterial/` / `Viral/` for the classification task), then:
+| Split | NORMAL | PNEUMONIA | PNEUMONIA breakdown |
+|-------|--------|-----------|---------------------|
+| train | 1,341 | 3,875 | bacterial 2,530 / viral 1,345 |
+| test  | 234 | 390 | bacterial 242 / viral 148 |
+
+The train split is class-imbalanced (~2.9:1 Pneumonia:NORMAL), so Stage 1 configs enable **class weighting** (`training.use_class_weights: true`) — without it the model collapsed to predicting every image as Pneumonia.
+
+### Colab training
+
+`colab_stage1_training.ipynb` trains the full 4-model Stage 1 detection ensemble on Google Colab (T4 GPU):
+
+1. Runtime → Change runtime type → **T4 GPU**
+2. Upload the notebook to Colab and run cells in order: mount Drive → clone this repo → install deps → authenticate Kaggle (`kaggle.json`) → fetch dataset via `kagglehub` → reorganize into Stage 1/Stage 2 layouts on Drive
+3. Sanity-check run on a tiny subset, then train the 4 models sequentially (PneumoNet-v1, PneumoNet-v2, VGG-16, Inception-v3) with per-epoch checkpoints saved to Google Drive
+4. Evaluate the detection ensemble with the paper's published weights (VGG-16:5, Inception-v3:4, PneumoNet-v2:3, PneumoNet-v1:1) and compare against the 98.03% / AUC 0.97 target
 
 ```bash
-python -m pneumonia train --config configs/default.yaml --data /path/to/dataset_root
+# or train any single model locally
+python -m pneumonia train --config configs/stage1_vgg16.yaml --data /path/to/stage1/train
+python -m pneumonia evaluate --config configs/stage1_vgg16.yaml --data /path/to/stage1/test --checkpoint results/stage1_vgg16/final_model.pt
 ```
 
 ## Notes & known deviations from the paper (INFERRED / DEFAULT)
