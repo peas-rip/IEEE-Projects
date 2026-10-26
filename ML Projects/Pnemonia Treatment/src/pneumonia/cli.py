@@ -42,12 +42,18 @@ def _build_cfg_from_config(config: dict) -> DatasetConfig:
     )
 
 
-def _build_model(model_name: str, num_classes: int, pretrained: bool = True):
-    """Build a model by name (custom CNNs or transfer-learning backbones)."""
+def _build_model(model_name: str, num_classes: int, pretrained: bool = True, ensemble_weights: list[float] | None = None):
+    """Build a model by name (custom CNNs, transfer-learning backbones, or ensembles)."""
     if model_name == "pneumonet_v1":
         return PneumoNetV1(num_classes=num_classes)
     if model_name == "pneumonet_v2":
         return PneumoNetV2(num_classes=num_classes)
+    if model_name == "detection_ensemble":
+        from .ensemble import DetectionEnsemble
+        return DetectionEnsemble(num_classes=num_classes, weights=ensemble_weights)
+    if model_name == "classification_ensemble":
+        from .ensemble import ClassificationEnsemble
+        return ClassificationEnsemble(num_classes=num_classes, weights=ensemble_weights)
     # Transfer-learning models
     from .transfer import TransferLearningModel
 
@@ -58,6 +64,7 @@ def cmd_train(args: argparse.Namespace) -> int:
     config = _load_config(args.config)
     train_cfg = config.get("training", {})
     data_cfg = config.get("data", {})
+    ensemble_cfg = config.get("ensemble", {})
     cfg = _build_cfg_from_config(config)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -82,7 +89,15 @@ def cmd_train(args: argparse.Namespace) -> int:
     # Model
     model_name = train_cfg.get("model", "pneumonet_v1")
     num_classes = int(train_cfg.get("num_classes", 2))
-    model = _build_model(model_name, num_classes)
+
+    # Ensemble weights from config (for detection_ensemble or classification_ensemble)
+    ensemble_weights = None
+    if model_name == "detection_ensemble":
+        ensemble_weights = ensemble_cfg.get("detection_weights", None)
+    elif model_name == "classification_ensemble":
+        ensemble_weights = ensemble_cfg.get("classification_weights", None)
+
+    model = _build_model(model_name, num_classes, pretrained=True, ensemble_weights=ensemble_weights)
 
     epochs = int(train_cfg.get("epochs", 10))
     lr = float(train_cfg.get("learning_rate", 1e-4))
@@ -138,6 +153,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     config = _load_config(args.config)
     data_cfg = config.get("data", {})
     eval_cfg = config.get("evaluation", {})
+    ensemble_cfg = config.get("ensemble", {})
     cfg = _build_cfg_from_config(config)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -162,7 +178,15 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
     num_classes = int(eval_cfg.get("num_classes", 2))
     model_name = eval_cfg.get("model", "pneumonet_v1")
-    model = _build_model(model_name, num_classes)
+
+    # Ensemble weights from config
+    ensemble_weights = None
+    if model_name == "detection_ensemble":
+        ensemble_weights = ensemble_cfg.get("detection_weights", None)
+    elif model_name == "classification_ensemble":
+        ensemble_weights = ensemble_cfg.get("classification_weights", None)
+
+    model = _build_model(model_name, num_classes, pretrained=False, ensemble_weights=ensemble_weights)
 
     # Load checkpoint if provided
     if args.checkpoint:

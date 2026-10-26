@@ -1,0 +1,24 @@
+# Stage 2 Classification: PneumoNet-v1 (Bacterial vs Viral)
+# Paper: Custom CNN for classification stage
+
+data:
+  image_size: 224
+  batch_size: 16
+  train_ratio: 0.8
+  seed: 42
+  num_workers: 4
+  grayscale_to_rgb: true
+  augment: true
+
+training:
+  model: pneumonet_v1
+  num_classes: 2
+  learning_rate: 0.0001
+  momentum: 0.9
+  epochs: 15
+  use_class_weights: true
+  use_weighted_sampler: false
+
+evaluation:
+  model: pneumonet_v1
+  num_classes: 2

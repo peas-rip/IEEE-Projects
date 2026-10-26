@@ -119,8 +119,10 @@ def train_model(
 
             optimizer.zero_grad()
             outputs = model(images)
-            # Handle InceptionV3 tuple output (logits, aux_logits) if returned
-            if isinstance(outputs, tuple):
+            # Handle ensemble output (dict with "logits" key) or InceptionV3 tuple output (logits, aux_logits)
+            if isinstance(outputs, dict):
+                outputs = outputs["logits"]
+            elif isinstance(outputs, tuple):
                 outputs = outputs[0]
             loss = criterion(outputs, labels)
             loss.backward()
@@ -147,7 +149,10 @@ def train_model(
                     images = images.to(device)
                     labels = labels.to(device)
                     outputs = model(images)
-                    if isinstance(outputs, tuple):
+                    # Handle ensemble output (dict with "logits" key) or InceptionV3 tuple output
+                    if isinstance(outputs, dict):
+                        outputs = outputs["logits"]
+                    elif isinstance(outputs, tuple):
                         outputs = outputs[0]
                     loss = criterion(outputs, labels)
                     v_running += loss.item() * images.size(0)
