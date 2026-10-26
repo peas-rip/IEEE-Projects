@@ -1,0 +1,32 @@
+# Configuration for pneumonia detection/classification project.
+# Based on the paper: "Enhancing Paediatric Pneumonia Detection and
+# Classification Using Customized CNNs and Transfer Learning Based Ensemble Models"
+# (Int. Res. J. Multidisc. Technovation, 6(6) (2024) 38-53).
+
+data:
+  image_size: 224            # paper-stated input size
+  batch_size: 32             # DEFAULT (paper does not state batch size)
+  train_ratio: 0.8           # paper-stated 80:20 train/test split
+  seed: 42                   # DEFAULT reproducibility seed
+  num_workers: 0
+  grayscale_to_rgb: true     # INFERRED: CXR grayscale replicated to 3 channels
+  augment: true              # paper-stated augmentation (flip, scale, brightness/contrast, shear)
+  synthetic_samples: 128     # DEFAULT for smoke tests
+  synthetic_image_size: 64   # smaller for fast smoke tests
+
+training:
+  model: pneumonet_v1        # pneumonet_v1 | pneumonet_v2 | vgg16 | inception_v3 | ...
+  num_classes: 2             # binary tasks (Normal/Pneumonia, Bacterial/Viral)
+  learning_rate: 0.0001      # paper-stated SGD lr=1e-4
+  momentum: 0.9              # DEFAULT (paper Eq. 3-4 momentum)
+  epochs: 10                 # DEFAULT (paper does not state epochs)
+
+evaluation:
+  model: pneumonet_v1
+  num_classes: 2
+
+# Paper-stated ensemble weights for the best detection combination
+# (Inception-v3:4, VGG-16:5, PneumoNet-v2:3, PneumoNet-v1:1).
+ensemble:
+  detection_weights: [1.0, 3.0, 5.0, 4.0]   # order: PneumoNet-v1, PneumoNet-v2, VGG-16, Inception-v3
+  classification_weights: [1.0, 1.0, 1.0]   # DEFAULT (paper does not publish classification weights)

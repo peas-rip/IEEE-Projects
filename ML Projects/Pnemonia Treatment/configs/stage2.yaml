@@ -1,0 +1,22 @@
+# Stage 2 config: Bacterial vs Viral classification
+# Based on the paper's Stage 2 ensemble (Xception, MobileNet-v2, PneumoNet-v1)
+
+data:
+  image_size: 224
+  batch_size: 32
+  train_ratio: 0.8
+  seed: 42
+  num_workers: 0
+  grayscale_to_rgb: true
+  augment: true
+
+training:
+  model: pneumonet_v1
+  num_classes: 2          # BACTERIAL vs VIRAL
+  learning_rate: 0.0001
+  momentum: 0.9
+  epochs: 15
+
+evaluation:
+  model: pneumonet_v1
+  num_classes: 2

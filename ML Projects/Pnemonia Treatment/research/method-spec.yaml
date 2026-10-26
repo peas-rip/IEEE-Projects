@@ -1,0 +1,189 @@
+paper:
+  title: "Enhancing Paediatric Pneumonia Detection and Classification Using Customized CNNs and Transfer Learning Based Ensemble Models"
+  authors:
+    - Shubham Godbole
+    - Adit Kattukaran
+    - Saurin Savla
+    - Vedant Pradhan
+    - Pratik Kanani
+    - Deepali Patil
+  venue: "Int. Res. J. Multidisc. Technovation, 6(6) (2024) 38-53"
+  doi: "https://doi.org/10.54392/irjtmt2463"
+  published: "2024-10-30"
+  license: "CC BY 4.0"
+  source_pdf: "Paper/View of Enhancing Paediatric Pneumonia Detection and Classification Using Customized CNNs and Transfer Learning Based Ensemble Models.pdf"
+  extracted_text: "research/extracted-paper.md"
+  extracted_pages: "research/pages/page_*.png"
+  version: "1.0 (2024)"
+  citations: []
+
+objective:
+  problem: "Accurate detection and classification of paediatric pneumonia from chest X-rays, including differentiation into bacterial vs. viral pneumonia."
+  contributions:
+    - "Two weighted ensemble models: detection (Normal vs. Pneumonia) and classification (Bacterial vs. Viral)."
+    - "Two custom CNN architectures: PneumoNet-v1 and PneumoNet-v2."
+    - "Detection ensemble: VGG-16, Inception-v3, PneumoNet-v1, PneumoNet-v2 -> 98.03% accuracy."
+    - "Classification ensemble: Xception, MobileNet-v2, PneumoNet-v1 -> 91.93% accuracy."
+    - "Data augmentation increasing bacterial training samples to 5,781 and viral to 3,149."
+
+method:
+  inputs:
+    - "Chest X-ray image (anterior-posterior), resized to 224x224x3"
+  outputs:
+    - "Stage 1: Normal vs. Pneumonia (binary)"
+    - "Stage 2 (if Pneumonia): Bacterial vs. Viral (binary)"
+  stages:
+    - "Data preprocessing: resize to 224x224, normalization, augmentation (flip, scale, brightness/contrast, shear)"
+    - "Train/test split: 80:20"
+    - "Stage 1 ensemble: 4 base models (VGG-16, Inception-v3, PneumoNet-v1, PneumoNet-v2), weighted average of probabilities"
+    - "Stage 2 ensemble: 3 base models (Xception, MobileNet-v2, PneumoNet-v1), weighted average of probabilities"
+  equations:
+    - id: "SGD update"
+      formula: "theta_{t+1} = theta_t - eta * grad_theta J(theta_t; x^(i), y^(i))"
+      source: "Paper Eq. (1)"
+    - id: "Mini-batch GD"
+      formula: "theta_{t+1} = theta_t - eta * (1/B) * sum(grad_theta J(...))"
+      source: "Paper Eq. (2)"
+    - id: "Momentum velocity"
+      formula: "v_{t+1} = gamma * v_t + eta * grad_theta J(theta_t)"
+      source: "Paper Eq. (3)"
+    - id: "Momentum param update"
+      formula: "theta_{t+1} = theta_t - v_{t+1}"
+      source: "Paper Eq. (4)"
+    - id: "AUC"
+      formula: "int_0^1 TPR d(FPR)"
+      source: "Paper Eq. (5)"
+    - id: "Average Precision"
+      formula: "sum_n (R_n - R_{n-1}) * P_n"
+      source: "Paper Eq. (6)"
+  algorithms:
+    - name: "Weighted ensemble inference"
+      steps:
+        - "Forward pass through each base model to obtain class probabilities"
+        - "Multiply each model's probability by its optimal weight"
+        - "Sum weighted probabilities; assign class with highest score"
+  model_components:
+    - name: "PneumoNet-v1"
+      type: "custom CNN"
+      input_size: [224, 224, 3]
+      layers:
+        - "Conv2D 128 filters 8x8 stride 3"
+        - "BatchNormalization"
+        - "Conv2D 256 filters 5x5 stride 1"
+        - "BatchNormalization + MaxPooling2D 3x3"
+        - "3x Conv2D 256 filters 1x1 (first two), 512 filters 3x3 (next four)"
+        - "BatchNormalization after each conv; MaxPooling2D 2x2 after every conv"
+        - "Flatten -> Dense 1024 units ReLU -> Dropout 0.5 -> Dense 2 units Softmax"
+      optimizer: "SGD, lr=1e-4"
+      loss: "Categorical Crossentropy"
+    - name: "PneumoNet-v2"
+      type: "custom CNN"
+      input_size: [224, 224, 3]
+      layers:
+        - "Conv2D 64 filters 3x3 stride 1"
+        - "BatchNormalization"
+        - "3x Conv2D 128 filters 3x3 stride 1"
+        - "BatchNormalization + MaxPooling2D 2x2 after first and third conv"
+        - "3x Conv2D 256 filters 3x3 (first two), 512 filters 3x3 (next)"
+        - "MaxPooling2D 2x2 after each layer"
+        - "Flatten -> two Dense 1024 units -> Dropout 0.5 each -> Dense output"
+      optimizer: "SGD, lower learning rate than v1"
+      loss: "Categorical Crossentropy"
+    - name: "Transfer learning baselines"
+      models: ["VGG-16", "VGG-19", "Inception-v3", "Xception", "ResNet-50", "ResNet-101", "DenseNet-121", "DenseNet-169", "MobileNet-v2"]
+
+data:
+  datasets:
+    - name: "Guangzhou Women and Children's Medical Center (Kermany Dataset)"
+      total_images: 5856
+      age_range: "1-5 years"
+      modality: "chest X-ray (CXR), anterior-posterior"
+  classes:
+    - Normal: 1583
+    - Pneumonia: 4280
+      Bacterial: 2766
+      Viral: 1514
+  preprocessing:
+    - "Resize to 224x224"
+    - "Normalize pixel values"
+    - "Augmentation: horizontal flipping, random scaling, brightness/contrast adjustments, shear transformations"
+  splits:
+    train_ratio: 0.8
+    test_ratio: 0.2
+    stratified: true
+    augmented_counts:
+      bacterial_train: 5781
+      viral_train: 3149
+
+training:
+  loss: "Categorical Crossentropy"
+  optimizer: "SGD"
+  learning_rate: 0.0001
+  batch_size: null
+  epochs: null
+  seeds: []
+  hardware: null
+
+inference:
+  procedure:
+    - "Load input chest X-ray, resize to 224x224, normalize"
+    - "Run Stage 1 detection ensemble (4 models)"
+    - "If Normal: output Normal, end"
+    - "If Pneumonia: run Stage 2 classification ensemble (3 models)"
+    - "Output Bacterial or Viral pneumonia"
+
+evaluation:
+  metrics: ["Accuracy", "Precision", "Recall", "F1-Score", "Validation Accuracy (%)", "Test Accuracy (%)", "AUC", "Average Precision (AP)"]
+  baselines: ["VGG-16", "VGG-19", "Inception-v3", "Xception", "ResNet-50", "ResNet-101", "DenseNet-121", "DenseNet-169", "MobileNet-v2", "PneumoNet-v1", "PneumoNet-v2"]
+  target_results:
+    - metric: "Detection ensemble (Normal vs. Pneumonia) Test Accuracy"
+      value: "98.03%"
+      source: "Paper Abstract & Section 4.1"
+    - metric: "Classification ensemble (Bacterial vs. Viral) Test Accuracy"
+      value: "91.93%"
+      source: "Paper Abstract & Section 4.2"
+    - metric: "Detection ensemble AUC"
+      value: "0.97"
+      source: "Paper Section 4.1"
+    - metric: "Classification ensemble AUC"
+      value: "0.91"
+      source: "Paper Section 4.2"
+
+dependencies:
+  - "python >= 3.9"
+  - "torch >= 2.0"
+  - "torchvision >= 0.15"
+  - "scikit-learn >= 1.0"
+  - "Pillow >= 9.0"
+  - "numpy >= 1.20"
+  - "matplotlib >= 3.0"
+  - "pyyaml >= 5.0"
+  - "tqdm >= 4.0"
+
+hardware:
+  minimum_estimate: "CPU, 8 GB RAM (smoke test on synthetic data)"
+  recommended_estimate: "GPU with >= 4 GB VRAM, 16 GB RAM (training on real dataset)"
+
+unknowns:
+  - "Exact optimal ensemble weights for all combinations (only partially published)"
+  - "Exact ensemble aggregation formula (weighted average vs. meta-learner stacking)"
+  - "Official author code repository URL"
+  - "Pretrained weights availability and format"
+  - "Batch size and number of epochs"
+  - "Train/validation sub-split within the 80% training portion"
+  - "Public dataset download link / access credentials"
+
+assumptions:
+  - "Stage 1 detection uses a weighted average of base-model probabilities (INFERRED)"
+  - "Stage 2 classification uses a weighted average of base-model probabilities (INFERRED)"
+  - "Transfer-learning models are fine-tuned on the Kermany dataset (INFERRED)"
+  - "Input images are RGB (3-channel) after resize (INFERRED)"
+  - "Binary crossentropy per head is equivalent to categorical crossentropy with 2 units (INFERRED)"
+
+acceptance_criteria:
+  - "PneumoNet-v1 and PneumoNet-v2 forward pass produces correct output shape (batch, 2)"
+  - "Stage 1 ensemble inference on a synthetic fixture runs end-to-end"
+  - "Training a single epoch on synthetic data completes without error"
+  - "Evaluation computes accuracy, precision, recall, F1, AUC on a synthetic fixture"
+  - "CLI entry point trains and evaluates on synthetic data"
+  - "Detection ensemble target accuracy 98.03% and classification ensemble 91.93% are noted as paper-reported (not guaranteed to reproduce without the real dataset and exact weights)"

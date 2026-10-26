@@ -1,0 +1,25 @@
+# Stage 1 Detection: PneumoNet-v1 (Normal vs Pneumonia)
+# Paper individual accuracy: 96.2%
+# Ensemble weight: 1
+
+data:
+  image_size: 224
+  batch_size: 32
+  train_ratio: 0.8
+  seed: 42
+  num_workers: 0
+  grayscale_to_rgb: true
+  augment: true
+
+training:
+  model: pneumonet_v1
+  num_classes: 2
+  learning_rate: 0.0001
+  momentum: 0.9
+  epochs: 15
+  use_class_weights: true      # Weighted CrossEntropyLoss for class imbalance
+  use_weighted_sampler: false  # Alternative: weighted sampler (one or the other)
+
+evaluation:
+  model: pneumonet_v1
+  num_classes: 2

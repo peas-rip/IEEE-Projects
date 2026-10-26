@@ -1,0 +1,23 @@
+# Stage 2: Xception substitute (Inception-v3 backbone) for Bacterial vs Viral
+# NOTE: torchvision has no Xception; we use Inception-v3 with a new head
+# as an INFERRED engineering substitution (documented in src/pneumonia/transfer.py).
+
+data:
+  image_size: 224
+  batch_size: 16      # Inception-v3 is heavier; smaller batch for 4GB VRAM
+  train_ratio: 0.8
+  seed: 42
+  num_workers: 0
+  grayscale_to_rgb: true
+  augment: true
+
+training:
+  model: inception_v3
+  num_classes: 2
+  learning_rate: 0.0001
+  momentum: 0.9
+  epochs: 10
+
+evaluation:
+  model: inception_v3
+  num_classes: 2

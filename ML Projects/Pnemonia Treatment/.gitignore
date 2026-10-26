@@ -1,0 +1,30 @@
+# Data & results (large files, not for git)
+data/
+results/
+*.pt
+*.pth
+
+# Research artifacts (rendered PDF pages)
+research/pages/
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+*.egg-info/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Colab / runtime
+.ipynb_checkpoints/
+*.ipynb
+!colab_stage1_training.ipynb
+
+# Kaggle credentials (never commit)
+kaggle.json

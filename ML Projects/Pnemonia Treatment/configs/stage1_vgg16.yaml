@@ -1,0 +1,25 @@
+# Stage 1 Detection: VGG-16 (Normal vs Pneumonia) - Transfer Learning
+# Paper ensemble weight: 5 (highest weight in Stage 1 ensemble)
+# Fine-tuned on the full dataset
+
+data:
+  image_size: 224
+  batch_size: 32
+  train_ratio: 0.8
+  seed: 42
+  num_workers: 0
+  grayscale_to_rgb: true
+  augment: true
+
+training:
+  model: vgg16
+  num_classes: 2
+  learning_rate: 0.0001
+  momentum: 0.9
+  epochs: 15
+  use_class_weights: true
+  use_weighted_sampler: false
+
+evaluation:
+  model: vgg16
+  num_classes: 2

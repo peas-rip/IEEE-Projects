@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pneumonia"
+version = "0.1.0"
+description = "Reimplementation of the pneumonia detection/classification ensembles from Godbole et al. (2024)"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Pneumonia Treatment Project" },
+]
+dependencies = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "scikit-learn>=1.0.0",
+    "Pillow>=9.0.0",
+    "numpy>=1.20.0",
+    "matplotlib>=3.0.0",
+    "pyyaml>=5.0.0",
+    "tqdm>=4.0.0",
+]
+
+[project.scripts]
+pneumonia = "pneumonia.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["pneumonia*"]
