@@ -8,6 +8,8 @@ This evaluates the complete paper workflow:
 
 Usage:
     python scripts/evaluate_full_pipeline.py
+    python scripts/evaluate_full_pipeline.py --ablate      # + drop-Inception / 2:3:5 variants
+    python scripts/evaluate_full_pipeline.py --allow-missing
 """
 
 import argparse
@@ -143,11 +145,36 @@ def stage2_breakdown(y_true, y_pred, pneumonia_mask):
     }
 
 
+def blend_probs(probs_by_name, weights):
+    """Weighted average of member probability arrays, renormalised over what exists.
+
+    Members present in ``weights`` but absent from ``probs_by_name`` (dropped via
+    ``--allow-missing`` or an ablation) are ignored and the remaining weights are
+    rescaled to sum to 1.
+    """
+    names = [n for n in probs_by_name if n in weights]
+    if not names:
+        raise ValueError("no member in weights has probabilities")
+    w = np.array([weights[n] for n in names], dtype=np.float64)
+    w = w / w.sum()
+    return sum(weight * probs_by_name[name] for weight, name in zip(w, names))
+
+
+def pipeline_predict(det_probs, cls_probs):
+    """Compose the two stages: Normal stays Normal, else 1 + argmax(Stage 2)."""
+    det_pred = np.asarray(det_probs).argmax(1)
+    cls_pred = np.asarray(cls_probs).argmax(1)
+    return np.where(det_pred == 0, 0, 1 + cls_pred)
+
+
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Evaluate the full two-stage pipeline")
     parser.add_argument("--allow-missing", action="store_true",
                         help="Evaluate with the members that exist and renormalise their weights")
+    parser.add_argument("--ablate", action="store_true",
+                        help="Also score the pipeline without Inception-v3 and with "
+                             "Stage 2 weights 2/3/5 (extra forward passes, no retraining)")
     args = parser.parse_args(argv)
 
     # Paper's published Stage 1 ensemble weights
@@ -296,10 +323,11 @@ def main(argv=None):
         class_names_3 = ["NORMAL", "PNEUMONIA"]
     else:
         class_names_3 = ["NORMAL", "BACTERIAL", "VIRAL"]
-        # Verify mapping
-        expected = ["NORMAL", "BACTERIAL", "VIRAL"]
-        if list(class_names) != expected:
-            print(f"Warning: Test classes {class_names} don't match expected {expected}")
+        # The ground truth was already remapped to pipeline order above; only warn
+        # if the classes cannot be mapped at all.
+        if set(class_names) != set(class_names_3):
+            print(f"WARNING: test classes {class_names} cannot be mapped to {class_names_3}; "
+                  "the 3-class metrics below are not comparable.")
 
     # Compute metrics
     print("\n" + "="*60)
@@ -349,6 +377,35 @@ def main(argv=None):
         print(f"Stage 2 F1:        BACTERIAL {bd['f1'][0]:.4f}  VIRAL {bd['f1'][1]:.4f}")
         print(f"Stage 2 CM:\n{bd['confusion_matrix']}")
         print("  (rows = true BACTERIAL/VIRAL; Stage-1 misses excluded)")
+
+    # Optional ablations: re-score the pipeline with different members/weights.
+    # Extra forward passes only - nothing is retrained.
+    if args.ablate and not use_binary_stage1:
+        print("\n" + "-"*60)
+        print("  ABLATIONS (no retraining)")
+        print("-"*60)
+        print("Collecting per-member probabilities...")
+        s1_probs = {name: predict_probs(model, test_loader, device=device)[1]
+                    for name, model in stage1_models.items()}
+        s2_probs = {name: predict_probs(model, test_loader, device=device)[1]
+                    for name, model in stage2_models.items()}
+
+        base_det = blend_probs(s1_probs, PAPER_WEIGHTS_STAGE1)
+        base_cls = blend_probs(s2_probs, {n: 1.0 for n in s2_probs})
+        drop_det = blend_probs(s1_probs, {n: w for n, w in PAPER_WEIGHTS_STAGE1.items()
+                                          if n != "inception_v3"})
+        grid_cls = blend_probs(s2_probs, {"pneumonet_v1": 2.0, "mobilenet_v2": 3.0,
+                                          "inception_v3": 5.0})
+
+        def score(det_p, cls_p):
+            return accuracy_score(y_true, pipeline_predict(det_p, cls_p))
+
+        print(f"baseline (paper weights / equal):   {score(base_det, base_cls):.4f}  "
+              f"(reported above: {metrics['accuracy']:.4f})")
+        print(f"drop Inception-v3 from Stage 1:     {score(drop_det, base_cls):.4f}")
+        print(f"Stage 2 weights 2/3/5:              {score(base_det, grid_cls):.4f}")
+        print(f"both:                               {score(drop_det, grid_cls):.4f}")
+        print("(2/3/5 was grid-searched on this test set -> optimistic when scored here)")
 
     print("\n" + "="*60)
     print("  PAPER TARGETS")

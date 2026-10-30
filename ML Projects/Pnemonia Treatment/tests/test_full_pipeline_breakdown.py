@@ -87,3 +87,30 @@ def test_no_pneumonia_routed_yields_zero_overall_accuracy():
     assert bd["accuracy_all"] == 0.0
     assert np.isnan(bd["accuracy_routed"])
     assert bd["confusion_matrix"].sum() == 0
+
+
+def test_blend_probs_renormalises_and_skips_absent_members():
+    mod = _load()
+    a = np.array([[0.9, 0.1], [0.2, 0.8]])
+    b = np.array([[0.4, 0.6], [0.7, 0.3]])
+    probs = {"a": a, "b": b}
+
+    # Weights for a member that is not present must be ignored, not silently
+    # inflate the total.
+    got = mod.blend_probs(probs, {"a": 3.0, "b": 1.0, "missing": 5.0})
+    np.testing.assert_allclose(got, 0.75 * a + 0.25 * b)
+
+    single = mod.blend_probs({"b": b}, {"a": 3.0, "b": 1.0})
+    np.testing.assert_allclose(single, b)
+
+
+def test_pipeline_predict_composes_the_two_stages():
+    mod = _load()
+    det = np.array([[0.9, 0.1],   # -> Normal
+                    [0.2, 0.8],   # -> Stage 2
+                    [0.3, 0.7]])  # -> Stage 2
+    cls = np.array([[0.5, 0.5],
+                    [0.8, 0.2],   # -> Bacterial
+                    [0.1, 0.9]])  # -> Viral
+
+    assert mod.pipeline_predict(det, cls).tolist() == [0, 1, 2]
