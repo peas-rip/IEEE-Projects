@@ -28,3 +28,21 @@ pneumonia = "pneumonia.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["pneumonia*"]
+
+[project.optional-dependencies]
+# Only needed to run the web app (app/). The CLI, training and evaluation
+# scripts work without it, so it is opt-in rather than a core dependency.
+serve = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.27.0",
+    "python-multipart>=0.0.9",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# "slow" marks tests that load the real 1.05 GiB of checkpoints. Excluded by
+# default so `pytest` stays fast; run them with `pytest -m slow`.
+markers = [
+    "slow: loads the real checkpoints (1.05 GiB) instead of stubs",
+]
+addopts = "-m 'not slow'"
