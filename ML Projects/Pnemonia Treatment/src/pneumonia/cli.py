@@ -66,9 +66,12 @@ def cmd_train(args: argparse.Namespace) -> int:
     data_cfg = config.get("data", {})
     ensemble_cfg = config.get("ensemble", {})
     cfg = _build_cfg_from_config(config)
+    if getattr(args, "num_workers", None) is not None:
+        cfg.num_workers = int(args.num_workers)
+    use_amp = bool(getattr(args, "amp", True))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    print(f"Using device: {device}  (amp={use_amp and device.type == 'cuda'}, workers={cfg.num_workers})")
 
     # Data
     if args.data == "synthetic":
@@ -82,9 +85,9 @@ def cmd_train(args: argparse.Namespace) -> int:
         train_dataset = None  # synthetic uses custom fixture
     else:
         train_loader, test_loader = load_real_dataset(args.data, cfg)
-        # For weighted sampler, we need the underlying dataset
-        from .data import load_real_dataset as load_real_dataset_raw
-        train_dataset, _ = load_real_dataset_raw(args.data, cfg)
+        # Reuse the loader's dataset instead of building ImageFolder a second time.
+        # The underlying Subset exposes `.targets`, so class weights need no image decoding.
+        train_dataset = train_loader.dataset
 
     # Model
     model_name = train_cfg.get("model", "pneumonet_v1")
@@ -139,6 +142,7 @@ def cmd_train(args: argparse.Namespace) -> int:
         use_weighted_sampler=use_weighted_sampler,
         train_dataset_for_sampler=train_dataset if use_weighted_sampler else None,
         num_classes=num_classes,
+        use_amp=use_amp,
     )
 
     # Save final model
@@ -155,6 +159,8 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     eval_cfg = config.get("evaluation", {})
     ensemble_cfg = config.get("ensemble", {})
     cfg = _build_cfg_from_config(config)
+    if getattr(args, "num_workers", None) is not None:
+        cfg.num_workers = int(args.num_workers)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -192,10 +198,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     if args.checkpoint:
         from .train import load_checkpoint
 
-        import torch.optim as optim
-
-        optimizer = optim.SGD(model.parameters(), lr=1e-4)
-        load_checkpoint(args.checkpoint, model, optimizer)
+        load_checkpoint(args.checkpoint, model)
         print(f"Loaded checkpoint: {args.checkpoint}")
     else:
         # load raw state dict
@@ -216,14 +219,25 @@ def cmd_infer(args: argparse.Namespace) -> int:
     from PIL import Image
     from .data import get_transforms
 
+    # Architecture, input size and label names can come from a config file so
+    # every one of the seven checkpoints is usable, not just PneumoNet-v1.
+    config = _load_config(args.config) if getattr(args, "config", None) else {}
+    eval_cfg = config.get("evaluation", {})
+    data_cfg = config.get("data", {})
+
+    model_name = args.model or eval_cfg.get("model") or "pneumonet_v1"
+    num_classes = int(eval_cfg.get("num_classes", 2))
+    image_size = args.image_size or int(data_cfg.get("image_size", 224))
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    num_classes = 2
-    model = PneumoNetV1(num_classes=num_classes).to(device)
+    model = _build_model(model_name, num_classes, pretrained=False).to(device)
     state = torch.load(args.checkpoint, map_location="cpu")
+    if isinstance(state, dict) and "model_state_dict" in state:
+        state = state["model_state_dict"]
     model.load_state_dict(state)
     model.eval()
 
-    transform = get_transforms(image_size=224, augment=False)[1]
+    transform = get_transforms(image_size=image_size, augment=False)[1]
     image = Image.open(args.image).convert("L")
     image = Image.merge("RGB", (image, image, image))
     input_tensor = transform(image).unsqueeze(0).to(device)
@@ -233,8 +247,18 @@ def cmd_infer(args: argparse.Namespace) -> int:
         probs = torch.softmax(outputs, dim=1)
         pred = probs.argmax(1).item()
 
-    class_names = ["Normal", "Pneumonia"]
+    if args.labels:
+        class_names = [name.strip() for name in args.labels.split(",")]
+    elif num_classes == 3:
+        class_names = ["NORMAL", "BACTERIAL", "VIRAL"]
+    else:
+        class_names = ["Normal", "Pneumonia"]
+    if len(class_names) != num_classes:
+        print(f"ERROR: {len(class_names)} labels given but the model has {num_classes} classes")
+        return 1
+
     print(f"Image: {args.image}")
+    print(f"Model: {model_name}  ({num_classes} classes, {image_size}px)")
     print(f"Predicted class: {class_names[pred]}")
     print(f"Probabilities: {probs.cpu().numpy().tolist()}")
     return 0
@@ -249,6 +273,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_train.add_argument("--data", default="synthetic", help="Dataset path or 'synthetic'")
     p_train.add_argument("--synthetic-root", default="data/synthetic", help="Root for synthetic fixture")
     p_train.add_argument("--checkpoint-dir", default="results/checkpoints", help="Checkpoint output directory")
+    p_train.add_argument("--num-workers", type=int, default=None, help="Override data loader workers (default: config value)")
+    p_train.add_argument("--amp", dest="amp", action="store_true", default=True, help="Use CUDA mixed precision (default: on)")
+    p_train.add_argument("--no-amp", dest="amp", action="store_false", help="Disable mixed precision")
     p_train.set_defaults(func=cmd_train)
 
     p_eval = sub.add_parser("evaluate", help="Evaluate a model")
@@ -257,11 +284,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_eval.add_argument("--synthetic-root", default="data/synthetic", help="Root for synthetic fixture")
     p_eval.add_argument("--model-weights", help="Path to model state_dict (.pt)")
     p_eval.add_argument("--checkpoint", help="Training checkpoint with epoch/optimizer (.pt)")
+    p_eval.add_argument("--num-workers", type=int, default=None, help="Override data loader workers (default: config value)")
     p_eval.set_defaults(func=cmd_evaluate)
 
     p_infer = sub.add_parser("infer", help="Infer on a single image")
     p_infer.add_argument("--image", required=True, help="Path to input chest X-ray image")
     p_infer.add_argument("--checkpoint", required=True, help="Path to model state_dict (.pt)")
+    p_infer.add_argument("--config", default=None,
+                         help="YAML config supplying the architecture and input size "
+                              "(e.g. configs/stage1_vgg16.yaml)")
+    p_infer.add_argument("--model", default=None,
+                         help="Model name override: pneumonet_v1, pneumonet_v2, vgg16, "
+                              "inception_v3, mobilenet_v2, resnet50, ...")
+    p_infer.add_argument("--image-size", type=int, default=None,
+                         help="Input size override (default: config value or 224)")
+    p_infer.add_argument("--labels", default=None,
+                         help="Comma-separated class names, e.g. 'Normal,Pneumonia'")
     p_infer.set_defaults(func=cmd_infer)
 
     return parser

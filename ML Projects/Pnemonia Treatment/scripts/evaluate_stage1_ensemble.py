@@ -13,6 +13,7 @@ Usage:
     python scripts/evaluate_stage1_ensemble.py
 """
 
+import argparse
 import os
 import sys
 import itertools
@@ -25,6 +26,13 @@ from pneumonia.data import DatasetConfig
 from pneumonia.transfer import TransferLearningModel
 from pneumonia.models import PneumoNetV1, PneumoNetV2
 from pneumonia.evaluate import compute_metrics, predict_probs
+from pneumonia.reporting import write_json
+from pneumonia.checkpoints import (
+    CHECKPOINTS,
+    checkpoint_path,
+    describe_inventory,
+    root_candidates,
+)
 
 
 def load_model(model_name, weights_path, num_classes=2):
@@ -51,7 +59,52 @@ def weighted_ensemble_probs(member_probs, weights):
     return (stacked * w[:, None, None]).sum(axis=0)
 
 
-def main():
+def available_members(members, allow_missing=False, label=""):
+    """Keep only members whose weights file exists.
+
+    Returns the filtered dict, or None when evaluation should stop. Without
+    ``allow_missing`` any gap is fatal; with it, weights are renormalised over
+    the members that are present (and the gap is reported loudly).
+    """
+    prefix = f"{label}: " if label else ""
+    present, missing = {}, []
+    for name, path in members.items():
+        print(f"  {prefix}{name:15s} <- {path}")
+        if os.path.exists(path):
+            present[name] = path
+        else:
+            missing.append((name, path))
+
+    for name, path in missing:
+        print(f"MISSING weights: {path} ({name})")
+
+    if not missing:
+        return present
+    if not allow_missing:
+        print("Train the missing model(s) first, or pass --allow-missing to "
+              "evaluate with the remaining members.")
+        return None
+    if len(present) < 2:
+        print("At least 2 ensemble members are required.")
+        return None
+
+    print(f"WARNING: evaluating without {[n for n, _ in missing]}; "
+          f"weights are renormalised over {list(present)}")
+    return present
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Evaluate the Stage 1 detection ensemble")
+    parser.add_argument("--allow-missing", action="store_true",
+                        help="Evaluate with the members that exist and renormalise their weights")
+    parser.add_argument("--json", metavar="PATH", default=None,
+                        help="Write the metrics of this run to a JSON file")
+    args = parser.parse_args(argv)
+
+    print(f"Checkpoint root: {root_candidates()[0]}")
+    print(describe_inventory())
+    print()
+
     # Paper's published Stage 1 ensemble weights
     PAPER_WEIGHTS = {
         "vgg16": 5,
@@ -60,18 +113,18 @@ def main():
         "pneumonet_v1": 1,
     }
 
-    # Paths to the four trained Stage 1 models (update as needed)
+    # Paths to the four trained Stage 1 models. Override the root with
+    # PNEUMONIA_CHECKPOINT_DIR when the files live elsewhere (e.g. Colab Drive).
     members = {
-        "pneumonet_v1": "results/stage1_pneumonet_v1/final_model.pt",
-        "pneumonet_v2": "results/stage1_pneumonet_v2/final_model.pt",
-        "vgg16": "results/stage1_vgg16/final_model.pt",
-        "inception_v3": "results/stage1_inception/final_model.pt",
+        "pneumonet_v1": checkpoint_path(*CHECKPOINTS["stage1_pneumonet_v1"]),
+        "pneumonet_v2": checkpoint_path(*CHECKPOINTS["stage1_pneumonet_v2"]),
+        "vgg16": checkpoint_path(*CHECKPOINTS["stage1_vgg16"]),
+        "inception_v3": checkpoint_path(*CHECKPOINTS["stage1_inception"]),
     }
 
-    for name, path in members.items():
-        if not os.path.exists(path):
-            print(f"MISSING weights: {path} (train this model first)")
-            return 1
+    members = available_members(members, args.allow_missing)
+    if members is None:
+        return 1
 
     # Test data - Stage 1 uses Normal vs Pneumonia
     cfg = DatasetConfig(image_size=224, batch_size=16, train_ratio=0.8, seed=42, num_workers=0, augment=False)
@@ -110,11 +163,13 @@ def main():
     print(f"Using device: {device}")
 
     member_probs = {}
+    solo_metrics = {}
     y_true = None
     for name, model in models.items():
         y_true, probs = predict_probs(model.to(device), test_loader, device=device)
         member_probs[name] = probs
         solo = compute_metrics(y_true, probs, class_names=class_names)
+        solo_metrics[name] = solo
         print(f"  {name:15s} solo accuracy: {solo['accuracy']:.4f}  AUC: {solo.get('auc_ovr'):.4f}")
 
     # --- Paper's published weights ---
@@ -157,6 +212,19 @@ def main():
     print(f"F1 (per cls):        {[round(f,4) for f in metrics['f1_per_class']]}")
     print(f"Confusion matrix:    {metrics['confusion_matrix']}")
     print(f"\nPaper Stage 1 target: accuracy 98.03%, AUC 0.97")
+
+    if args.json:
+        write_json(args.json, {
+            "stage": "stage1",
+            "dataset": {"root": "data/real_3class/test", "num_images": len(binary_test_ds),
+                        "classes": class_names},
+            "checkpoints": dict(members),
+            "solo": solo_metrics,
+            "paper_weights": dict(zip(names, paper_weights)),
+            "paper_ensemble": paper_metrics,
+            "grid_weights": dict(zip(names, best_w)),
+            "grid_ensemble": metrics,
+        })
     return 0
 
 

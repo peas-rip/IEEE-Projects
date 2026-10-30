@@ -32,35 +32,80 @@ def get_criterion(class_weights: Optional[torch.Tensor] = None) -> nn.Module:
 
 
 def compute_class_weights(dataset, num_classes: int = 2) -> torch.Tensor:
-    """Compute inverse-frequency class weights from a dataset.
-    
+    """Compute inverse-frequency class weights without decoding any images.
+
+    Works with ``ImageFolder`` and ``Subset`` (what ``load_real_dataset``
+    returns). Reading labels from ``targets`` avoids a full image-decoding
+    pass over the training set, which used to dominate startup time.
+
     Returns a tensor of shape (num_classes,) suitable for CrossEntropyLoss weight param.
     """
-    # Count samples per class
     class_counts = np.zeros(num_classes, dtype=np.int64)
-    for _, label in dataset:
-        class_counts[label] += 1
-    
+
+    targets = _dataset_targets(dataset)
+    if targets is not None:
+        for label in targets:
+            class_counts[int(label)] += 1
+    else:
+        # Generic fallback: iterate items (slow, but only for exotic datasets).
+        for _, label in dataset:
+            class_counts[int(label)] += 1
+
+    # Guard against missing classes to avoid division by zero
+    class_counts = np.maximum(class_counts, 1)
+
     # Inverse frequency weighting
     total = class_counts.sum()
     weights = total / (num_classes * class_counts)
     return torch.tensor(weights, dtype=torch.float32)
 
 
+def _dataset_targets(dataset):
+    """Return a list of integer labels if the dataset exposes them cheaply."""
+    # torchvision Subset wrapping an ImageFolder
+    if hasattr(dataset, "indices") and hasattr(dataset, "dataset"):
+        base = dataset.dataset
+        targets = getattr(base, "targets", None)
+        if targets is not None:
+            return [targets[i] for i in dataset.indices]
+    targets = getattr(dataset, "targets", None)
+    if targets is not None:
+        return list(targets)
+    # Subset of a Subset (defensive, rare)
+    if hasattr(dataset, "indices") and hasattr(dataset, "dataset"):
+        return _dataset_targets(dataset.dataset)
+    return None
+
+
 def get_weighted_sampler(dataset, num_classes: int = 2) -> WeightedRandomSampler:
     """Create a WeightedRandomSampler for balanced mini-batches.
-    
+
     Each sample gets a weight inversely proportional to its class frequency.
+    Labels are read from ``targets`` when available (no image decoding).
     """
     class_counts = np.zeros(num_classes, dtype=np.int64)
-    for _, label in dataset:
-        class_counts[label] += 1
-    
-    # Per-sample weights
-    sample_weights = np.array([1.0 / class_counts[label] for _, label in dataset], dtype=np.float64)
+    targets = _dataset_targets(dataset)
+    if targets is not None:
+        for label in targets:
+            class_counts[int(label)] += 1
+        class_counts = np.maximum(class_counts, 1)
+        sample_weights = np.array([1.0 / class_counts[int(t)] for t in targets], dtype=np.float64)
+    else:
+        for _, label in dataset:
+            class_counts[int(label)] += 1
+        class_counts = np.maximum(class_counts, 1)
+        sample_weights = np.array([1.0 / class_counts[int(label)] for _, label in dataset], dtype=np.float64)
+
     sample_weights = torch.from_numpy(sample_weights).double()
-    
     return WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True)
+
+
+def _make_grad_scaler(enabled: bool):
+    """Create a GradScaler that works across torch versions."""
+    try:
+        return torch.amp.GradScaler("cuda", enabled=enabled)
+    except (AttributeError, TypeError):  # torch < 2.3
+        return torch.cuda.amp.GradScaler(enabled=enabled)
 
 
 def train_model(
@@ -76,6 +121,7 @@ def train_model(
     use_weighted_sampler: bool = False,
     train_dataset_for_sampler=None,
     num_classes: int = 2,
+    use_amp: bool = True,
 ) -> dict:
     """Train a model for a number of epochs.
 
@@ -86,12 +132,17 @@ def train_model(
         use_weighted_sampler: If True, uses WeightedRandomSampler on train_dataset_for_sampler.
         train_dataset_for_sampler: Dataset to compute sample weights from (required if use_weighted_sampler=True).
         num_classes: Number of classes (for sampler weight computation).
+        use_amp: Use CUDA automatic mixed precision (fp16) when available. ~1.5-2x faster on T4.
     """
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     criterion = get_criterion(class_weights.to(device) if class_weights is not None else None)
     optimizer = get_optimizer(model, lr=lr, momentum=momentum)
+
+    # Mixed precision only makes sense on CUDA.
+    use_amp = bool(use_amp) and device.type == "cuda"
+    scaler = _make_grad_scaler(use_amp)
 
     # If using weighted sampler, recreate the loader with the sampler
     if use_weighted_sampler and train_dataset_for_sampler is not None:
@@ -114,19 +165,21 @@ def train_model(
         correct = 0
         total = 0
         for images, labels in train_loader:
-            images = images.to(device)
-            labels = labels.to(device)
+            images = images.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
 
-            optimizer.zero_grad()
-            outputs = model(images)
-            # Handle ensemble output (dict with "logits" key) or InceptionV3 tuple output (logits, aux_logits)
-            if isinstance(outputs, dict):
-                outputs = outputs["logits"]
-            elif isinstance(outputs, tuple):
-                outputs = outputs[0]
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+            with torch.autocast(device_type=device.type, enabled=use_amp):
+                outputs = model(images)
+                # Handle ensemble output (dict with "logits" key) or InceptionV3 tuple output (logits, aux_logits)
+                if isinstance(outputs, dict):
+                    outputs = outputs["logits"]
+                elif isinstance(outputs, tuple):
+                    outputs = outputs[0]
+                loss = criterion(outputs, labels)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             running_loss += loss.item() * images.size(0)
             _, predicted = outputs.max(1)
@@ -144,10 +197,10 @@ def train_model(
             v_running = 0.0
             v_correct = 0
             v_total = 0
-            with torch.no_grad():
+            with torch.no_grad(), torch.autocast(device_type=device.type, enabled=use_amp):
                 for images, labels in val_loader:
-                    images = images.to(device)
-                    labels = labels.to(device)
+                    images = images.to(device, non_blocking=True)
+                    labels = labels.to(device, non_blocking=True)
                     outputs = model(images)
                     # Handle ensemble output (dict with "logits" key) or InceptionV3 tuple output
                     if isinstance(outputs, dict):
@@ -196,8 +249,19 @@ def save_checkpoint(
 
 
 def load_checkpoint(path: str, model: nn.Module, optimizer: Optional[torch.optim.Optimizer] = None) -> dict:
+    """Load a model from either a training checkpoint or a raw state_dict.
+
+    ``train_model`` writes per-epoch checkpoints (a dict with
+    ``model_state_dict``), while the CLI writes ``final_model.pt`` as a plain
+    ``state_dict``. Accept both so ``--checkpoint`` works with either file.
+    """
     checkpoint = torch.load(path, map_location="cpu")
-    model.load_state_dict(checkpoint["model_state_dict"])
-    if optimizer is not None and "optimizer_state_dict" in checkpoint:
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        model.load_state_dict(checkpoint["model_state_dict"])
+        if optimizer is not None and "optimizer_state_dict" in checkpoint:
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    else:
+        # Raw state_dict saved via torch.save(model.state_dict(), path)
+        model.load_state_dict(checkpoint)
+        checkpoint = {"model_state_dict": checkpoint}
     return checkpoint

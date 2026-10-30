@@ -1,6 +1,8 @@
 # Data & results (large files, not for git)
 data/
-results/
+results/*
+# ...but the recorded run is small, and every doc references it.
+!results/reproduction_run.json
 *.pt
 *.pth
 
@@ -25,6 +27,4 @@ Thumbs.db
 .ipynb_checkpoints/
 *.ipynb
 !colab_stage1_training.ipynb
-
-# Kaggle credentials (never commit)
-kaggle.json
+!colab_full_training.ipynb

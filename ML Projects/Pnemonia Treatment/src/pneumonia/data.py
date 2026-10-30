@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional, Tuple
 
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image
 from sklearn.model_selection import train_test_split
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -64,13 +64,30 @@ class PneumoniaDataset(Dataset):
 
     def __getitem__(self, idx: int):
         path = self.image_paths[idx]
-        image = Image.open(path).convert("L")  # load as grayscale
+        image = Image.open(path).convert("L")  # load as grayscale (single channel)
         if self.grayscale_to_rgb:
-            image = ImageOps.grayscale(image)  # ensure single channel
+            # Replicate the single channel to RGB for ImageNet-pretrained backbones.
             image = Image.merge("RGB", (image, image, image))
         if self.transform is not None:
             image = self.transform(image)
         return image, self.labels[idx]
+
+
+def _loader_kwargs(cfg: "DatasetConfig") -> dict:
+    """Common DataLoader kwargs tuned for GPU training throughput.
+
+    - ``pin_memory`` gives a free host->device copy speedup on CUDA.
+    - ``persistent_workers`` avoids respawning workers every epoch.
+    - ``prefetch_factor`` keeps the GPU fed while decoding the next batch.
+    """
+    kwargs = {
+        "num_workers": cfg.num_workers,
+        "pin_memory": torch.cuda.is_available(),
+    }
+    if cfg.num_workers > 0:
+        kwargs["persistent_workers"] = True
+        kwargs["prefetch_factor"] = 2
+    return kwargs
 
 
 def get_transforms(image_size: int = 224, augment: bool = True):
@@ -169,10 +186,10 @@ def build_dataloaders(
         test_paths, test_labels, transform=eval_tf, grayscale_to_rgb=cfg.grayscale_to_rgb
     )
     train_loader = DataLoader(
-        train_ds, batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers
+        train_ds, batch_size=cfg.batch_size, shuffle=True, **_loader_kwargs(cfg)
     )
     test_loader = DataLoader(
-        test_ds, batch_size=cfg.batch_size, shuffle=False, num_workers=cfg.num_workers
+        test_ds, batch_size=cfg.batch_size, shuffle=False, **_loader_kwargs(cfg)
     )
     return train_loader, test_loader
 
@@ -187,7 +204,7 @@ def build_eval_loader(root: str, cfg: DatasetConfig) -> DataLoader:
 
     _, eval_tf = get_transforms(image_size=cfg.image_size, augment=False)
     ds = ImageFolder(root=root, transform=eval_tf)
-    return DataLoader(ds, batch_size=cfg.batch_size, shuffle=False, num_workers=cfg.num_workers)
+    return DataLoader(ds, batch_size=cfg.batch_size, shuffle=False, **_loader_kwargs(cfg))
 
 
 def load_real_dataset(
@@ -204,8 +221,8 @@ def load_real_dataset(
     per the paper's Data Availability section.
     """
     train_ds, test_ds = _load_real_dataset_raw(root, cfg)
-    train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True, num_workers=cfg.num_workers)
-    test_loader = DataLoader(test_ds, batch_size=cfg.batch_size, shuffle=False, num_workers=cfg.num_workers)
+    train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True, **_loader_kwargs(cfg))
+    test_loader = DataLoader(test_ds, batch_size=cfg.batch_size, shuffle=False, **_loader_kwargs(cfg))
     return train_loader, test_loader
 
 

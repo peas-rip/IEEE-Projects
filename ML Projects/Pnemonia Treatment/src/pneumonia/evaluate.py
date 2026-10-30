@@ -34,12 +34,14 @@ def predict_probs(
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     model.eval()
+    use_amp = device.type == "cuda"
     y_true_list = []
     y_prob_list = []
     for images, labels in loader:
-        images = images.to(device)
-        labels = labels.to(device)
-        outputs = model(images)
+        images = images.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
+        with torch.autocast(device_type=device.type, enabled=use_amp):
+            outputs = model(images)
         if isinstance(outputs, dict):
             # TwoStagePipeline output -> use detection logits or pred
             logits = outputs.get("detection_logits", outputs.get("logits"))
@@ -47,7 +49,7 @@ def predict_probs(
             logits = outputs[0]
         else:
             logits = outputs
-        probs = torch.softmax(logits, dim=1)
+        probs = torch.softmax(logits.float(), dim=1)
         y_true_list.append(labels.cpu().numpy())
         y_prob_list.append(probs.cpu().numpy())
     y_true = np.concatenate(y_true_list)
