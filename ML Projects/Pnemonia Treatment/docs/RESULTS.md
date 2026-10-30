@@ -313,10 +313,38 @@ the split (1) and the missing Xception (6).
 
 ## 11. Reproducing these numbers
 
-On Colab, with the checkpoints at
-`/content/drive/MyDrive/PneumoniaProject/checkpoints/<config>/final_model.pt`:
+### Reference run (Colab)
 
-```bash
+The authoritative numbers in this document were produced on Google Colab
+(Tesla T4, Python 3.13, torch 2.11.0+cu130) with the 224 px JPEG cache
+described in `docs/SETUP.md`. The full curated output is in
+[`docs/COLAB_RUN.md`](COLAB_RUN.md).
+
+### Reproducing on your own machine
+
+The same scripts run on any machine with the seven checkpoints and the test
+data. A local run will usually match to within a few images, but two
+environment-specific effects are worth knowing about:
+
+1. **Image decoding.** The Colab run evaluates the 224 px JPEG cache
+   (quality 92); a local run against the raw images decodes and resizes at
+   eval time. The two are not pixel-identical.
+2. **Library versions.** torch, torchvision and Pillow differ between Colab
+   and a local install, and a handful of borderline softmax calls can flip.
+
+In practice this is 0-3 images per metric. The one exception is
+**MobileNet-v2**, which scores 0.8282 locally against the recorded 0.8513
+(9 of 390 images). CPU, CUDA and CUDA-with-AMP-disabled all agree, so it is
+not a device artefact; the Colab figure is the one that was recorded and is
+the one quoted throughout this project. Both figures are in the
+`local_verification` block of `results/reproduction_run.json`.
+
+Do not treat a local run that differs by a few images as a regression. Treat a
+difference of more than 3 images on any ensemble figure as a real problem:
+check that the checkpoints are the ones from `checkpoints/` and not a stray
+`Models/` or `results/` copy.
+
+### Commands
 python scripts/evaluate_stage1_ensemble.py --json results/stage1_ensemble.json
 python scripts/evaluate_stage2_ensemble.py --json results/stage2_ensemble.json
 python scripts/evaluate_full_pipeline.py --ablate --json results/pipeline_ablation.json

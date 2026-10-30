@@ -260,6 +260,7 @@ and in the `deviations_from_paper` array of `results/reproduction_run.json`.
 | How do I run it? | [`docs/SETUP.md`](docs/SETUP.md) |
 | What can I build on it? | [`docs/EXERCISES.md`](docs/EXERCISES.md) |
 | How do I write it up? | [`docs/REPORT_TEMPLATE.md`](docs/REPORT_TEMPLATE.md) |
+| The actual Colab run output | [`docs/COLAB_RUN.md`](docs/COLAB_RUN.md) |
 | What did the paper say, exactly? | [`research/paper-notes.md`](research/paper-notes.md) |
 | Where were the assumptions? | [`research/assumptions-and-open-questions.md`](research/assumptions-and-open-questions.md) |
 | What may I do with it? | [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE) |
