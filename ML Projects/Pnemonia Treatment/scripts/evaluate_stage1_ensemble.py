@@ -13,6 +13,7 @@ Usage:
     python scripts/evaluate_stage1_ensemble.py
 """
 
+import argparse
 import os
 import sys
 import itertools
@@ -51,7 +52,44 @@ def weighted_ensemble_probs(member_probs, weights):
     return (stacked * w[:, None, None]).sum(axis=0)
 
 
-def main():
+def available_members(members, allow_missing=False):
+    """Keep only members whose weights file exists.
+
+    Returns the filtered dict, or None when evaluation should stop. Without
+    ``allow_missing`` any gap is fatal; with it, weights are renormalised over
+    the members that are present (and the gap is reported loudly).
+    """
+    present, missing = {}, []
+    for name, path in members.items():
+        if os.path.exists(path):
+            present[name] = path
+        else:
+            missing.append((name, path))
+
+    for name, path in missing:
+        print(f"MISSING weights: {path} ({name})")
+
+    if not missing:
+        return present
+    if not allow_missing:
+        print("Train the missing model(s) first, or pass --allow-missing to "
+              "evaluate with the remaining members.")
+        return None
+    if len(present) < 2:
+        print("At least 2 ensemble members are required.")
+        return None
+
+    print(f"WARNING: evaluating without {[n for n, _ in missing]}; "
+          f"weights are renormalised over {list(present)}")
+    return present
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Evaluate the Stage 1 detection ensemble")
+    parser.add_argument("--allow-missing", action="store_true",
+                        help="Evaluate with the members that exist and renormalise their weights")
+    args = parser.parse_args(argv)
+
     # Paper's published Stage 1 ensemble weights
     PAPER_WEIGHTS = {
         "vgg16": 5,
@@ -68,10 +106,9 @@ def main():
         "inception_v3": "results/stage1_inception/final_model.pt",
     }
 
-    for name, path in members.items():
-        if not os.path.exists(path):
-            print(f"MISSING weights: {path} (train this model first)")
-            return 1
+    members = available_members(members, args.allow_missing)
+    if members is None:
+        return 1
 
     # Test data - Stage 1 uses Normal vs Pneumonia
     cfg = DatasetConfig(image_size=224, batch_size=16, train_ratio=0.8, seed=42, num_workers=0, augment=False)

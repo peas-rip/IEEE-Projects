@@ -10,6 +10,7 @@ Usage:
     python scripts/evaluate_stage2_ensemble.py
 """
 
+import argparse
 import os
 import sys
 import itertools
@@ -46,17 +47,48 @@ def weighted_ensemble_probs(member_probs, weights):
     return (stacked * w[:, None, None]).sum(axis=0)
 
 
-def main():
+def available_members(members, allow_missing=False):
+    """Keep only members whose weights file exists (see Stage 1 script)."""
+    present, missing = {}, []
+    for name, path in members.items():
+        if os.path.exists(path):
+            present[name] = path
+        else:
+            missing.append((name, path))
+
+    for name, path in missing:
+        print(f"MISSING weights: {path} ({name})")
+
+    if not missing:
+        return present
+    if not allow_missing:
+        print("Train the missing model(s) first, or pass --allow-missing to "
+              "evaluate with the remaining members.")
+        return None
+    if len(present) < 2:
+        print("At least 2 ensemble members are required.")
+        return None
+
+    print(f"WARNING: evaluating without {[n for n, _ in missing]}; "
+          f"weights are renormalised over {list(present)}")
+    return present
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Evaluate the Stage 2 classification ensemble")
+    parser.add_argument("--allow-missing", action="store_true",
+                        help="Evaluate with the members that exist and renormalise their weights")
+    args = parser.parse_args(argv)
+
     # Paths to the three trained Stage 2 models
     members = {
         "pneumonet_v1": "results/stage2_checkpoints/final_model.pt",
         "mobilenet_v2": "results/stage2_mobilenet/final_model.pt",
         "inception_v3": "results/stage2_xception/final_model.pt",  # Xception substitute
     }
-    for name, path in members.items():
-        if not os.path.exists(path):
-            print(f"MISSING weights: {path} (train this model first)")
-            return 1
+    members = available_members(members, args.allow_missing)
+    if members is None:
+        return 1
 
     # Test data
     cfg = DatasetConfig(image_size=224, batch_size=16, train_ratio=0.8, seed=42, num_workers=0, augment=False)

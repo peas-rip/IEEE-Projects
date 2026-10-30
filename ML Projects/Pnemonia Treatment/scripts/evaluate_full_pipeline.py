@@ -10,6 +10,7 @@ Usage:
     python scripts/evaluate_full_pipeline.py
 """
 
+import argparse
 import os
 import sys
 import torch
@@ -18,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pneumonia.ensemble import DetectionEnsemble, ClassificationEnsemble, TwoStagePipeline
+from pneumonia.ensemble import WeightedEnsemble, TwoStagePipeline
 from pneumonia.transfer import TransferLearningModel
 from pneumonia.models import PneumoNetV1, PneumoNetV2
 from pneumonia.data import DatasetConfig, get_transforms
@@ -44,7 +45,39 @@ def load_model(model_name, weights_path, num_classes=2):
     return model
 
 
-def main():
+def available_members(members, allow_missing=False):
+    """Keep only members whose weights file exists (see the ensemble scripts)."""
+    present, missing = {}, []
+    for name, path in members.items():
+        if os.path.exists(path):
+            present[name] = path
+        else:
+            missing.append((name, path))
+
+    for name, path in missing:
+        print(f"MISSING weights: {path} ({name})")
+
+    if not missing:
+        return present
+    if not allow_missing:
+        print("Train the missing model(s) first, or pass --allow-missing to "
+              "evaluate with the remaining members.")
+        return None
+    if len(present) < 2:
+        print("At least 2 ensemble members are required.")
+        return None
+
+    print(f"WARNING: evaluating without {[n for n, _ in missing]}; "
+          f"weights are renormalised over {list(present)}")
+    return present
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Evaluate the full two-stage pipeline")
+    parser.add_argument("--allow-missing", action="store_true",
+                        help="Evaluate with the members that exist and renormalise their weights")
+    args = parser.parse_args(argv)
+
     # Paper's published Stage 1 ensemble weights
     PAPER_WEIGHTS_STAGE1 = {
         "vgg16": 5,
@@ -68,12 +101,12 @@ def main():
         "inception_v3": "results/stage2_xception/final_model.pt",  # Xception substitute
     }
 
-    # Check all models exist
-    all_members = {**stage1_members, **stage2_members}
-    for name, path in all_members.items():
-        if not os.path.exists(path):
-            print(f"MISSING weights: {path} (train this model first)")
-            return 1
+    stage1_members = available_members(stage1_members, args.allow_missing)
+    if stage1_members is None:
+        return 1
+    stage2_members = available_members(stage2_members, args.allow_missing)
+    if stage2_members is None:
+        return 1
 
     # Load test data - use 3-class test for full pipeline evaluation
     cfg = DatasetConfig(image_size=224, batch_size=16, train_ratio=0.8, seed=42, num_workers=0, augment=False)
@@ -112,26 +145,26 @@ def main():
         stage2_models[name] = load_model(name, path, num_classes=2).to(device)
         print(f"  Loaded {name}")
 
-    # Create ensembles with paper weights
-    detection = DetectionEnsemble(num_classes=2, weights=[
-        PAPER_WEIGHTS_STAGE1["pneumonet_v1"],
-        PAPER_WEIGHTS_STAGE1["pneumonet_v2"],
-        PAPER_WEIGHTS_STAGE1["vgg16"],
-        PAPER_WEIGHTS_STAGE1["inception_v3"],
-    ])
-    detection.models = torch.nn.ModuleList([stage1_models["pneumonet_v1"],
-                                              stage1_models["pneumonet_v2"],
-                                              stage1_models["vgg16"],
-                                              stage1_models["inception_v3"]])
-    detection = detection.to(device)
+    # Create ensembles with paper weights. Build them from the members that were
+    # actually loaded, so a missing model cannot desynchronise models vs weights.
+    s1_names = list(stage1_models)
+    s1_weights = [PAPER_WEIGHTS_STAGE1[n] for n in s1_names]
+    print(f"\nStage 1 members: {dict(zip(s1_names, s1_weights))}")
+    detection = WeightedEnsemble(
+        models=[stage1_models[n] for n in s1_names],
+        weights=s1_weights,
+        num_classes=2,
+    ).to(device)
     detection.eval()
 
     # Stage 2: use equal weights (paper doesn't publish)
-    classification = ClassificationEnsemble(num_classes=2, weights=[1.0, 1.0, 1.0])
-    classification.models = torch.nn.ModuleList([stage2_models["inception_v3"],
-                                                   stage2_models["mobilenet_v2"],
-                                                   stage2_models["pneumonet_v1"]])
-    classification = classification.to(device)
+    s2_names = list(stage2_models)
+    print(f"Stage 2 members: {dict(zip(s2_names, [1.0] * len(s2_names)))}")
+    classification = WeightedEnsemble(
+        models=[stage2_models[n] for n in s2_names],
+        weights=[1.0] * len(s2_names),
+        num_classes=2,
+    ).to(device)
     classification.eval()
 
     # Full pipeline
