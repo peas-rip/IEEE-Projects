@@ -16,6 +16,14 @@ import sys
 import torch
 import numpy as np
 from pathlib import Path
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_recall_fscore_support,
+    precision_score,
+    recall_score,
+)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -70,6 +78,70 @@ def available_members(members, allow_missing=False):
     print(f"WARNING: evaluating without {[n for n, _ in missing]}; "
           f"weights are renormalised over {list(present)}")
     return present
+
+
+def stage2_breakdown(y_true, y_pred, pneumonia_mask):
+    """Stage 2 metrics for the pneumonia images Stage 1 sent to the classifier.
+
+    The Stage 2 branch must only be scored on the images it actually saw. Passing
+    every pneumonia-labelled image would both charge Stage 2 for Stage 1's misses
+    and inject a ``-1`` sentinel into the predictions whenever Stage 1 predicted
+    Normal; scikit-learn then sees three distinct labels and treats the task as
+    multiclass, rejecting ``average="binary"``.
+
+    Parameters
+    ----------
+    y_true : sequence of int
+        Ground truth in pipeline order (0 = Normal, 1 = Bacterial, 2 = Viral).
+    y_pred : sequence of int
+        Pipeline predictions, same order.
+    pneumonia_mask : sequence of bool
+        True for images whose ground truth is Bacterial or Viral.
+
+    Returns
+    -------
+    dict with the routed/overall accuracies, per-class precision/recall/F1 and
+    the 2x2 confusion matrix (rows = true Bacterial/Viral).
+    """
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    pneumonia_mask = np.asarray(pneumonia_mask, dtype=bool)
+
+    routed = pneumonia_mask & (y_pred != 0)
+    n_pneumonia = int(pneumonia_mask.sum())
+    n_routed = int(routed.sum())
+
+    y_true_cls = y_true[routed] - 1  # 0 = Bacterial, 1 = Viral
+    y_pred_cls = y_pred[routed] - 1
+    if n_routed:
+        precision, recall, f1, _ = precision_recall_fscore_support(
+            y_true_cls, y_pred_cls, labels=[0, 1], zero_division=0
+        )
+        correct = int((y_true_cls == y_pred_cls).sum())
+        accuracy_routed = correct / n_routed
+        cm = confusion_matrix(y_true_cls, y_pred_cls, labels=[0, 1])
+    else:
+        precision, recall, f1 = np.zeros(2), np.zeros(2), np.zeros(2)
+        correct = 0
+        accuracy_routed = float("nan")
+        cm = np.zeros((2, 2), dtype=int)
+
+    # Same denominator as "all pneumonia images": every Stage 1 miss counts as a
+    # wrong subtype prediction rather than dropping out of the metric.
+    accuracy_all = correct / n_pneumonia if n_pneumonia else float("nan")
+
+    return {
+        "n_pneumonia": n_pneumonia,
+        "n_routed": n_routed,
+        "n_missed": n_pneumonia - n_routed,
+        "accuracy_routed": accuracy_routed,
+        "accuracy_all": accuracy_all,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "confusion_matrix": cm,
+    }
+
 
 
 def main(argv=None):
@@ -253,27 +325,30 @@ def main(argv=None):
     y_true_binary = (y_true != 0).astype(int)  # Normal=0, Pneumonia=1
     y_pred_binary = (y_pred != 0).astype(int)
     
-    from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
     print(f"Stage 1 Accuracy:  {accuracy_score(y_true_binary, y_pred_binary):.4f}")
     print(f"Stage 1 Precision: {precision_score(y_true_binary, y_pred_binary):.4f}")
     print(f"Stage 1 Recall:    {recall_score(y_true_binary, y_pred_binary):.4f}")
     print(f"Stage 1 F1:        {f1_score(y_true_binary, y_pred_binary):.4f}")
     print(f"Stage 1 CM:\n{confusion_matrix(y_true_binary, y_pred_binary)}")
 
-    # Stage 2: only on Pneumonia cases
-    pneu_mask = y_true_binary == 1
-    if pneu_mask.sum() > 0:
+    # Stage 2: scored only on the pneumonia images Stage 1 actually routed onward.
+    if use_binary_stage1:
+        print("\nStage 2 breakdown skipped: binary test data has no BACTERIAL/VIRAL labels.")
+    elif y_true_binary.any():
         print("\n" + "-"*60)
         print("  STAGE 2 BREAKDOWN (Bacterial vs Viral | Pneumonia)")
         print("-"*60)
-        y_true_cls = y_true[pneu_mask] - 1  # 0=Bacterial, 1=Viral
-        y_pred_cls = y_pred[pneu_mask] - 1
-        print(f"Stage 2 Accuracy:  {accuracy_score(y_true_cls, y_pred_cls):.4f}")
-        print(f"Stage 2 Precision: {precision_score(y_true_cls, y_pred_cls):.4f}")
-        print(f"Stage 2 Recall:    {recall_score(y_true_cls, y_pred_cls):.4f}")
-        print(f"Stage 2 F1:        {f1_score(y_true_cls, y_pred_cls):.4f}")
-        print(f"Stage 2 CM:\n{confusion_matrix(y_true_cls, y_pred_cls)}")
-        print(f"Samples: {pneu_mask.sum()} Pneumonia cases")
+
+        bd = stage2_breakdown(y_true, y_pred, y_true_binary == 1)
+        print(f"Samples: {bd['n_pneumonia']} pneumonia, {bd['n_routed']} routed to Stage 2, "
+              f"{bd['n_missed']} missed by Stage 1")
+        print(f"Stage 2 Accuracy (operating set):        {bd['accuracy_routed']:.4f}")
+        print(f"Stage 2 Accuracy (misses counted wrong): {bd['accuracy_all']:.4f}")
+        print(f"Stage 2 Precision: BACTERIAL {bd['precision'][0]:.4f}  VIRAL {bd['precision'][1]:.4f}")
+        print(f"Stage 2 Recall:    BACTERIAL {bd['recall'][0]:.4f}  VIRAL {bd['recall'][1]:.4f}")
+        print(f"Stage 2 F1:        BACTERIAL {bd['f1'][0]:.4f}  VIRAL {bd['f1'][1]:.4f}")
+        print(f"Stage 2 CM:\n{bd['confusion_matrix']}")
+        print("  (rows = true BACTERIAL/VIRAL; Stage-1 misses excluded)")
 
     print("\n" + "="*60)
     print("  PAPER TARGETS")
