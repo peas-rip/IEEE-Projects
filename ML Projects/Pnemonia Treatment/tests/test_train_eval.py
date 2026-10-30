@@ -52,6 +52,21 @@ def test_checkpoint_save_load(synthetic_loaders, tmp_path):
         assert torch.allclose(p1, p2)
 
 
+def test_load_final_model_state_dict(tmp_path):
+    """`final_model.pt` is a raw state_dict; load_checkpoint must accept it."""
+    model = PneumoNetV1(num_classes=2)
+    with torch.no_grad():
+        for p in model.parameters():
+            p.add_(0.01)
+    path = os.path.join(str(tmp_path), "final_model.pt")
+    torch.save(model.state_dict(), path)
+
+    model2 = PneumoNetV1(num_classes=2)
+    load_checkpoint(path, model2)  # must not raise KeyError
+    for p1, p2 in zip(model.parameters(), model2.parameters()):
+        assert torch.allclose(p1, p2)
+
+
 def test_evaluate_metrics(synthetic_loaders):
     _, test_loader = synthetic_loaders
     model = PneumoNetV1(num_classes=2)

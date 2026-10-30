@@ -66,9 +66,12 @@ def cmd_train(args: argparse.Namespace) -> int:
     data_cfg = config.get("data", {})
     ensemble_cfg = config.get("ensemble", {})
     cfg = _build_cfg_from_config(config)
+    if getattr(args, "num_workers", None) is not None:
+        cfg.num_workers = int(args.num_workers)
+    use_amp = bool(getattr(args, "amp", True))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    print(f"Using device: {device}  (amp={use_amp and device.type == 'cuda'}, workers={cfg.num_workers})")
 
     # Data
     if args.data == "synthetic":
@@ -82,9 +85,9 @@ def cmd_train(args: argparse.Namespace) -> int:
         train_dataset = None  # synthetic uses custom fixture
     else:
         train_loader, test_loader = load_real_dataset(args.data, cfg)
-        # For weighted sampler, we need the underlying dataset
-        from .data import load_real_dataset as load_real_dataset_raw
-        train_dataset, _ = load_real_dataset_raw(args.data, cfg)
+        # Reuse the loader's dataset instead of building ImageFolder a second time.
+        # The underlying Subset exposes `.targets`, so class weights need no image decoding.
+        train_dataset = train_loader.dataset
 
     # Model
     model_name = train_cfg.get("model", "pneumonet_v1")
@@ -139,6 +142,7 @@ def cmd_train(args: argparse.Namespace) -> int:
         use_weighted_sampler=use_weighted_sampler,
         train_dataset_for_sampler=train_dataset if use_weighted_sampler else None,
         num_classes=num_classes,
+        use_amp=use_amp,
     )
 
     # Save final model
@@ -155,6 +159,8 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     eval_cfg = config.get("evaluation", {})
     ensemble_cfg = config.get("ensemble", {})
     cfg = _build_cfg_from_config(config)
+    if getattr(args, "num_workers", None) is not None:
+        cfg.num_workers = int(args.num_workers)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -192,10 +198,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     if args.checkpoint:
         from .train import load_checkpoint
 
-        import torch.optim as optim
-
-        optimizer = optim.SGD(model.parameters(), lr=1e-4)
-        load_checkpoint(args.checkpoint, model, optimizer)
+        load_checkpoint(args.checkpoint, model)
         print(f"Loaded checkpoint: {args.checkpoint}")
     else:
         # load raw state dict
@@ -249,6 +252,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_train.add_argument("--data", default="synthetic", help="Dataset path or 'synthetic'")
     p_train.add_argument("--synthetic-root", default="data/synthetic", help="Root for synthetic fixture")
     p_train.add_argument("--checkpoint-dir", default="results/checkpoints", help="Checkpoint output directory")
+    p_train.add_argument("--num-workers", type=int, default=None, help="Override data loader workers (default: config value)")
+    p_train.add_argument("--amp", dest="amp", action="store_true", default=True, help="Use CUDA mixed precision (default: on)")
+    p_train.add_argument("--no-amp", dest="amp", action="store_false", help="Disable mixed precision")
     p_train.set_defaults(func=cmd_train)
 
     p_eval = sub.add_parser("evaluate", help="Evaluate a model")
@@ -257,6 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_eval.add_argument("--synthetic-root", default="data/synthetic", help="Root for synthetic fixture")
     p_eval.add_argument("--model-weights", help="Path to model state_dict (.pt)")
     p_eval.add_argument("--checkpoint", help="Training checkpoint with epoch/optimizer (.pt)")
+    p_eval.add_argument("--num-workers", type=int, default=None, help="Override data loader workers (default: config value)")
     p_eval.set_defaults(func=cmd_evaluate)
 
     p_infer = sub.add_parser("infer", help="Infer on a single image")

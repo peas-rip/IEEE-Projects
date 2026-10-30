@@ -173,6 +173,16 @@ def main():
     y_probs = np.vstack(all_probs)
     y_true = np.concatenate(all_targets)
 
+    # ImageFolder assigns labels alphabetically (e.g. BACTERIAL=0, NORMAL=1, VIRAL=2),
+    # while the pipeline emits 0=Normal, 1=Bacterial, 2=Viral. Remap the ground truth
+    # so the comparison is valid.
+    pipeline_order = {"NORMAL": 0, "BACTERIAL": 1, "VIRAL": 2}
+    if set(class_names) == set(pipeline_order):
+        remap = np.array([pipeline_order[c] for c in class_names], dtype=np.int64)
+        y_true = remap[y_true]
+        print(f"Remapped ground-truth labels from ImageFolder order {class_names} "
+              f"to pipeline order {list(pipeline_order)}")
+
     # Map true labels to 3-class
     if use_binary_stage1:
         # Stage 1 test has NORMAL=0, PNEUMONIA=1

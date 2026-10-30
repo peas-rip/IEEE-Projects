@@ -25,6 +25,4 @@ Thumbs.db
 .ipynb_checkpoints/
 *.ipynb
 !colab_stage1_training.ipynb
-
-# Kaggle credentials (never commit)
-kaggle.json
+!colab_full_training.ipynb

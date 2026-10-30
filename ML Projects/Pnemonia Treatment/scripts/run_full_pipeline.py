@@ -54,7 +54,7 @@ def main():
     for path in [stage1_train, stage2_train]:
         if not os.path.exists(path):
             print(f"ERROR: Data not found at {path}")
-            print("Run scripts/download_dataset.py first")
+            print("Run scripts/prepare_dataset.py first (see README: 'Prepare the data')")
             return 1
 
     # Stage 1 model configs

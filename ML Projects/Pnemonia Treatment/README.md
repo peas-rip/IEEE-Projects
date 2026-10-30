@@ -103,9 +103,19 @@ Edit `configs/default.yaml` to change:
 
 ## Using the real dataset
 
-The paper's dataset (Kermany / Guangzhou Women and Children's Medical Center, 5,856 paediatric CXRs) is gated behind an author request in the paper's Data Availability section — but the same underlying dataset is publicly available on Kaggle as **"Chest X-Ray Images (Pneumonia)"** (`paultimothymooney/chest-xray-pneumonia`), which is what this project trains on.
+The paper's dataset (Kermany / Guangzhou Women and Children's Medical Center, 5,856 paediatric CXRs) is gated behind an author request in the paper's Data Availability section. This project trains on a public copy of the same underlying archive. You only need a local `chest_xray/` folder with this layout:
 
-Class distributions (Kaggle copy):
+```
+chest_xray/
+  train/
+    NORMAL/*.jpeg
+    PNEUMONIA/*.jpeg          # filenames contain BACTERIA / VIRUS
+  test/
+    NORMAL/*.jpeg
+    PNEUMONIA/*.jpeg
+```
+
+Class distributions:
 
 | Split | NORMAL | PNEUMONIA | PNEUMONIA breakdown |
 |-------|--------|-----------|---------------------|
@@ -114,14 +124,41 @@ Class distributions (Kaggle copy):
 
 The train split is class-imbalanced (~2.9:1 Pneumonia:NORMAL), so Stage 1 configs enable **class weighting** (`training.use_class_weights: true`) — without it the model collapsed to predicting every image as Pneumonia.
 
-### Colab training
+### Prepare the data (local, no cloud services)
 
-`colab_stage1_training.ipynb` trains the full 4-model Stage 1 detection ensemble on Google Colab (T4 GPU):
+`scripts/prepare_dataset.py` turns a raw `chest_xray` folder (or a `.zip` of it) into the Stage 1 / Stage 2 layouts. It handles both nested `PNEUMONIA/BACTERIA/` folders and flat `BACTERIA_*.jpeg` filenames.
 
-1. Runtime → Change runtime type → **T4 GPU**
-2. Upload the notebook to Colab and run cells in order: mount Drive → clone this repo → install deps → authenticate Kaggle (`kaggle.json`) → fetch dataset via `kagglehub` → reorganize into Stage 1/Stage 2 layouts on Drive
-3. Sanity-check run on a tiny subset, then train the 4 models sequentially (PneumoNet-v1, PneumoNet-v2, VGG-16, Inception-v3) with per-epoch checkpoints saved to Google Drive
-4. Evaluate the detection ensemble with the paper's published weights (VGG-16:5, Inception-v3:4, PneumoNet-v2:3, PneumoNet-v1:1) and compare against the 98.03% / AUC 0.97 target
+```bash
+python scripts/prepare_dataset.py --source /path/to/chest_xray --dst data
+```
+
+Output:
+- `data/stage1/{train,test}/{NORMAL,PNEUMONIA}` — detection
+- `data/stage2/{train,test}/{BACTERIAL,VIRAL}` — classification
+
+### Optional: build a fast 224px cache
+
+Decoding full-resolution JPEGs every epoch is the main CPU bottleneck. Build a resized cache once:
+
+```bash
+python scripts/prepare_cache.py --src data/stage1 --dst cache224/stage1 --workers 4
+python scripts/prepare_cache.py --src data/stage2 --dst cache224/stage2 --workers 4
+```
+
+### Colab training (full two-stage run)
+
+`colab_full_training.ipynb` is the end-to-end notebook. It:
+1. Mounts Google Drive and clones the repo
+2. Installs the package (`pip install -e .`) and verifies the GPU
+3. Reuses/prepares the Stage 1 & Stage 2 data on Drive
+4. Builds a local 224px cache (fast I/O)
+5. Trains the remaining Stage 1 models, skipping any with a `final_model.pt` already on Drive
+6. Trains the three Stage 2 models
+7. Evaluates each model, both ensembles, and the full two-stage pipeline
+
+`colab_stage1_training.ipynb` remains the Stage-1-only notebook.
+
+Training enables CUDA mixed precision (AMP) by default, `num_workers=2` and pinned memory. Checkpoints are written to fast local disk and only `final_model.pt` is copied to Drive, so a session is not throttled by hundreds of MB of per-epoch Drive writes.
 
 ```bash
 # or train any single model locally
