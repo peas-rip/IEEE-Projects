@@ -1,0 +1,165 @@
+/* Minimal, clinical-minimal design. No framework — plain CSS with custom
+   properties so a student can restyle the whole app by editing one file. */
+
+:root {
+  --ink: #111827;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --bg: #f9fafb;
+  --card: #ffffff;
+  --accent: #2563eb;
+  --ok: #059669;
+  --warn: #d97706;
+  --err: #dc2626;
+  --radius: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+code {
+  background: #f3f4f6;
+  padding: .1em .35em;
+  border-radius: 4px;
+  font-size: .9em;
+}
+
+a { color: var(--accent); }
+
+/* --- top bar --- */
+.topbar {
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 10;
+}
+.topbar-inner {
+  max-width: 1100px; margin: 0 auto;
+  padding: 0 1.25rem; height: 52px;
+  display: flex; align-items: center; gap: 1.5rem;
+}
+.brand { font-weight: 600; }
+
+.nav { display: flex; gap: 1rem; flex: 1; }
+.nav a {
+  color: var(--muted); text-decoration: none;
+  padding: .35rem 0; border-bottom: 2px solid transparent;
+}
+.nav a:hover { color: var(--ink); }
+.nav a.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.pill {
+  font-size: .75rem; font-weight: 600;
+  padding: .25rem .6rem; border-radius: 999px;
+  cursor: default;
+}
+.pill--ok { background: #d1fae5; color: var(--ok); }
+.pill--warn { background: #fef3c7; color: var(--warn); }
+.pill--err { background: #fee2e2; color: var(--err); }
+.pill--unknown { background: #f3f4f6; color: var(--muted); }
+
+/* --- layout --- */
+main { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; }
+
+h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+h2 { font-size: 1.05rem; margin: 0 0 .75rem; }
+h3 { font-size: .9rem; margin: 0 0 .5rem; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.lede { color: var(--muted); margin: 0 0 1.5rem; max-width: 70ch; }
+
+.card {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 1.25rem; margin-bottom: 1.25rem;
+}
+
+.grid { display: grid; gap: 1.25rem; }
+.grid--2 { grid-template-columns: 1fr 1fr; }
+@media (max-width: 800px) { .grid--2 { grid-template-columns: 1fr; } }
+
+/* --- banner --- */
+.banner {
+  border-left: 3px solid var(--warn); background: #fffbeb;
+  padding: .75rem 1rem; border-radius: 0 var(--radius) var(--radius) 0;
+  margin-bottom: 1.25rem; font-size: .9rem;
+}
+
+/* --- buttons / inputs --- */
+button, .btn {
+  font: inherit; cursor: pointer;
+  background: var(--accent); color: white;
+  border: none; border-radius: var(--radius);
+  padding: .5rem 1rem; font-weight: 500;
+}
+button:hover { filter: brightness(1.1); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+input[type="file"] { display: none; }
+
+/* --- tables --- */
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* --- probability bars --- */
+.prob-row { display: grid; grid-template-columns: 110px 1fr 60px; align-items: center; gap: .6rem; margin-bottom: .5rem; }
+.prob-label { font-size: .85rem; color: var(--muted); }
+.prob-track { height: 10px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.prob-fill { height: 100%; border-radius: 999px; transition: width .25s ease; }
+.prob-value { font-variant-numeric: tabular-nums; font-size: .85rem; text-align: right; }
+
+.class-NORMAL .prob-fill { background: var(--ok); }
+.class-BACTERIAL .prob-fill { background: var(--accent); }
+.class-VIRAL .prob-fill { background: var(--warn); }
+
+/* --- drop zone --- */
+.dropzone {
+  border: 2px dashed var(--line); border-radius: var(--radius);
+  padding: 2.5rem; text-align: center; color: var(--muted);
+  cursor: pointer; transition: border-color .15s, background .15s;
+}
+.dropzone:hover, .dropzone.drag { border-color: var(--accent); background: #eff6ff; }
+
+/* --- member weights --- */
+.member-row { display: grid; grid-template-columns: 140px 1fr 50px; align-items: center; gap: .6rem; margin-bottom: .6rem; }
+.member-name { font-size: .85rem; }
+.member-value { font-variant-numeric: tabular-nums; font-size: .85rem; text-align: right; }
+.member-off { opacity: .4; }
+
+/* --- confusion matrix --- */
+.cm { border-collapse: collapse; font-size: .85rem; }
+.cm td, .cm th { border: 1px solid var(--line); padding: .4rem .6rem; text-align: center; }
+.cm td.diag { background: #d1fae5; font-weight: 600; }
+.cm td.off-diag { background: #fee2e2; }
+
+/* --- samples gallery --- */
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: .5rem; }
+.gallery button {
+  background: none; border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 0; overflow: hidden; aspect-ratio: 1;
+}
+.gallery button img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gallery button:hover { border-color: var(--accent); }
+.gallery .tag { font-size: .65rem; color: var(--muted); text-align: center; padding: .2rem 0; }
+
+/* --- misc --- */
+.loading { color: var(--muted); text-align: center; padding: 3rem; }
+.error { background: #fee2e2; border: 1px solid #fecaca; border-radius: var(--radius); padding: 1.25rem; }
+.hint { color: var(--muted); font-size: .85rem; }
+.footer { text-align: center; color: var(--muted); font-size: .8rem; padding: 1.5rem; border-top: 1px solid var(--line); }
+
+.kv { display: grid; grid-template-columns: auto 1fr; gap: .25rem 1rem; font-size: .9rem; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+.badge { display: inline-block; font-size: .7rem; font-weight: 600; padding: .15rem .45rem; border-radius: 4px; background: var(--line); color: var(--muted); }
+.badge--ok { background: #d1fae5; color: var(--ok); }
+.badge--warn { background: #fef3c7; color: var(--warn); }

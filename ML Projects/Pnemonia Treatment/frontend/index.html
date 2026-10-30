@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pneumonia Detection — Educational</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <span class="brand">Pneumonia Detection</span>
+        <nav class="nav">
+          <a href="#/predict" data-page="predict">Predict</a>
+          <a href="#/playground" data-page="playground">Playground</a>
+          <a href="#/results" data-page="results">Results</a>
+          <a href="#/about" data-page="about">About</a>
+        </nav>
+        <span id="health-pill" class="pill pill--unknown">Checking…</span>
+      </div>
+    </header>
+    <main id="view"></main>
+    <footer class="footer">
+      <p>Educational use only — not a medical device. See <a href="#/about">About</a>.</p>
+    </footer>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

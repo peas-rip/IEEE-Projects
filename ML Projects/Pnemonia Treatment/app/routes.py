@@ -12,6 +12,7 @@ from typing import Annotated
 
 import numpy as np
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 
 from pneumonia.service import (
@@ -179,6 +180,25 @@ def _samples_root() -> str:
     import os
 
     return os.path.join(os.path.dirname(os.path.dirname(__file__)), "samples")
+
+
+def _figures_root() -> str:
+    """Static figures live in docs/figures/."""
+    import os
+
+    return os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "figures")
+
+
+@router.get("/figures/{name}")
+def figure(name: str) -> FileResponse:
+    """Serve a static figure by filename (no path traversal)."""
+    import os
+
+    safe = os.path.basename(name)
+    path = os.path.join(_figures_root(), safe)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="figure not found")
+    return FileResponse(path)
 
 
 @router.get("/samples", response_model=list[SampleImage])
