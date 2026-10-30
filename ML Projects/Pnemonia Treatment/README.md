@@ -1,212 +1,297 @@
 # Pneumonia Detection & Classification (Paediatric Chest X-Ray)
 
-A clean, reproducible reimplementation of the method from:
+A reproducible, **educational** reimplementation of the two-stage ensemble
+method from:
 
-> **Enhancing Paediatric Pneumonia Detection and Classification Using Customized CNNs and Transfer Learning Based Ensemble Models**
-> Shubham Godbole et al., *Int. Res. J. Multidisc. Technovation*, 6(6) (2024) 38–53.
-> DOI: https://doi.org/10.54392/irjtmt2463 | License: CC BY 4.0
+> **Enhancing Paediatric Pneumonia Detection and Classification Using Customized
+> CNNs and Transfer Learning Based Ensemble Models**
+> Shubham Godbole, Adit Kattukaran, Saurin Savla, Vedant Pradhan, Pratik Kanani,
+> Deepali Patil. *Int. Res. J. Multidisc. Technovation*, 6(6) (2024) 38–53.
+> DOI: [10.54392/irjtmt2463](https://doi.org/10.54392/irjtmt2463) · Paper licence: CC BY 4.0
 
-## What this project implements
+**Not a medical device. For teaching, research and portfolio use only. See
+[`NOTICE`](NOTICE).**
 
-Two weighted ensemble models for chest X-ray (CXR) images, exactly as described in the paper:
+---
 
-| Stage | Task | Base models | Paper-reported test accuracy |
-|-------|------|-------------|------------------------------|
-| 1 | Normal vs. Pneumonia (detection) | VGG-16, Inception-v3, PneumoNet-v1, PneumoNet-v2 | 98.03% |
-| 2 | Bacterial vs. Viral (classification) | Xception, MobileNet-v2, PneumoNet-v1 | 91.93% |
+## The headline, honestly
 
-**Inference flow:** input CXR → Stage 1 detection → if *Normal*, stop → if *Pneumonia*, Stage 2 classifies as *Bacterial* or *Viral*.
+The paper reports **98.03%** for its detection ensemble. This project does not
+reproduce that number, and the reasons are documented rather than hidden.
 
-**Custom CNNs:** PneumoNet-v1 and PneumoNet-v2 (implemented from the paper's architecture descriptions in Sections 3.3–3.4).
+| What | Accuracy | AUC |
+|---|---:|---:|
+| Stage 1 detection ensemble (Normal vs Pneumonia) | **86.06%** | 0.9634 |
+| Stage 2 classification ensemble (Bacterial vs Viral) | **89.49%** | 0.9390 |
+| Full pipeline, 3-class end to end | **78.53%** | 0.9503 |
+| Same pipeline, Inception-v3 removed from Stage 1 | **83.01%** | — |
+| Paper's detection ensemble | 98.03% | 0.97 |
+| Paper's classification ensemble | 91.93% | 0.91 |
 
-**Transfer-learning baselines:** VGG-16, VGG-19, Inception-v3, ResNet-50, ResNet-101, DenseNet-121, DenseNet-169, MobileNet-v2 (Xception substituted with Inception-v3 backbone — see notes below).
+The paper's split, training budget and augmentation policy all differ from this
+project's, and two of the paper's hyper-parameters were never published. The
+gap is analysed by cause in [`docs/RESULTS.md`](docs/RESULTS.md) §9.
+
+**The single most interesting finding** is not the accuracy at all: Inception-v3
+collapsed during training (accuracy 0.6458, NORMAL recall **0.056**) yet still
+carried 4 of the 13 ensemble votes. Removing that one member raises end-to-end
+accuracy by **4.48 points**, with no retraining and no other change. It is a
+measured demonstration that a broken ensemble member cannot be outvoted, only
+removed.
+
+---
+
+## What you can do with it
+
+* Reproduce every reported number from seven trained checkpoints in a few
+  minutes.
+* Reweight or drop ensemble members and re-score instantly — the ensembles are
+  pure inference, so ablations cost forward passes, not GPU hours.
+* Single-image inference on any of the seven models, any architecture.
+* Regenerate all figures from a JSON results file.
+* Run ten lab exercises ([`docs/EXERCISES.md`](docs/EXERCISES.md)), most of
+  which need no GPU and no retraining.
+
+```bash
+# reproduce everything
+python scripts/evaluate_stage1_ensemble.py --json results/stage1_ensemble.json
+python scripts/evaluate_stage2_ensemble.py --json results/stage2_ensemble.json
+python scripts/evaluate_full_pipeline.py  --ablate --json results/pipeline_ablation.json
+python scripts/make_figures.py
+pytest -q            # 44 tests
+```
+
+---
+
+## What it is not
+
+| Limitation | Detail |
+|---|---|
+| Clinical use | Trained on ages 1–5 from one institution; recognises exactly two subtypes; probabilities are uncalibrated. **Do not use on patients.** |
+| The paper's result | 78.53% end to end. The 98.03% belongs to a different evaluation protocol and is not claimed here. |
+| A service | No API, no UI, no ONNX/TorchScript export. It is a CLI plus evaluation scripts. |
+| Bundled data | The dataset is not redistributed. Obtain it from its publisher. |
+| Statistically strong | One 624-image test set; a 95% interval on the headline figure is roughly ±3.2 points. |
+
+---
+
+## How it works
+
+```
+chest X-ray (224×224, grayscale replicated to RGB)
+        │
+        ▼
+┌──────────────────────────────────────────────┐
+│ Stage 1 — Normal vs Pneumonia (detection)    │
+│ VGG-16 (5) · Inception-v3 (4)                │
+│ PneumoNet-v2 (3) · PneumoNet-v1 (1)          │  weighted average of
+│                                              │  softmax probabilities
+│ accuracy 0.8606 · recall 0.9872              │
+└──────────────────────────────────────────────┘
+        │
+   ┌────┴────┐
+   │ Normal  │──► stop
+   └────┬────┘
+        │ Pneumonia → Stage 2
+┌──────────────────────────────────────────────┐
+│ Stage 2 — Bacterial vs Viral                 │
+│ Inception-v3 (Xception substitute)           │  equal weights
+│ MobileNet-v2 · PneumoNet-v1                  │
+│                                              │
+│ accuracy 0.8949 · AUC 0.9390                 │
+└──────────────────────────────────────────────┘
+        │
+        ▼
+   NORMAL / BACTERIAL / VIRAL
+```
+
+Because Stage 1 runs first, its errors are unrecoverable: of the 134 pipeline
+errors on the test set, **82 are healthy lungs flagged as pneumonia**, 5 are
+pneumonias Stage 1 missed, and 47 are subtype confusions. That decomposition is
+in [`docs/RESULTS.md`](docs/RESULTS.md) §6.
+
+**Custom CNNs.** PneumoNet-v1 and PneumoNet-v2 are implemented from the paper's
+architecture descriptions (Sections 3.3–3.4). **Transfer-learning backbones:**
+VGG-16, VGG-19, Inception-v3, ResNet-50, ResNet-101, DenseNet-121,
+DenseNet-169, MobileNet-v2. Xception is unavailable in torchvision and is
+substituted by Inception-v3 — a deviation the whole project keeps visible.
+
+---
+
+## Results at a glance
+
+![Per-member accuracy against the paper's reported figures](docs/figures/fig_member_accuracy.png)
+
+| Model | Stage | Weight | Accuracy | AUC |
+|---|---|---:|---:|---:|
+| PneumoNet-v1 | 1 | 1 | 0.8285 | 0.9456 |
+| PneumoNet-v2 | 1 | 3 | 0.8510 | 0.9298 |
+| VGG-16 | 1 | 5 | **0.9119** | **0.9690** |
+| Inception-v3 | 1 | 4 | 0.6458 | 0.7969 |
+| PneumoNet-v1 | 2 | 1 | 0.8205 | 0.9396 |
+| MobileNet-v2 | 2 | 1 | **0.8513** | 0.9370 |
+| Inception-v3 (Xception substitute) | 2 | 1 | 0.7026 | 0.7845 |
+
+![Pipeline confusion matrix](docs/figures/fig_pipeline_confusion.png)
+
+![Zero-retraining ablations](docs/figures/fig_ablations.png)
+
+Full tables, the gap analysis and threats to validity:
+[`docs/RESULTS.md`](docs/RESULTS.md).
+
+---
+
+## Getting started
+
+Full instructions, including the directory layout and a troubleshooting table:
+[`docs/SETUP.md`](docs/SETUP.md).
+
+```bash
+python -m venv .venv
+.venv\Scripts\Activate.ps1          # Windows PowerShell
+# source .venv/bin/activate        # Linux / macOS
+
+pip install -r requirements.txt
+pip install -e .
+pytest -q                            # expect 44 passed
+```
+
+Requires Python 3.9+. GPU optional for evaluation and everything downstream of
+it.
+
+Checkpoints are not in the repository. Put the seven `final_model.pt` files
+where the scripts expect them, or point at them:
+
+```bash
+export PNEUMONIA_CHECKPOINT_DIR=/content/drive/MyDrive/PneumoniaProject/checkpoints
+# Windows PowerShell
+$env:PNEUMONIA_CHECKPOINT_DIR = "D:\checkpoints"
+```
+
+### Single-image inference
+
+```bash
+pneumonia infer --image path/to/xray.jpeg --checkpoint results/stage1_pneumonet_v1/final_model.pt
+
+pneumonia infer --image path/to/xray.jpeg \
+  --checkpoint results/stage1_vgg16/final_model.pt \
+  --model vgg16 --labels Normal,Pneumonia
+```
+
+`--config`, `--model`, `--image-size` and `--labels` let any of the seven
+checkpoints run. This scores a single model; for the full pipeline use
+`scripts/evaluate_full_pipeline.py`.
+
+### Training (optional)
+
+The shipped checkpoints are already trained. To retrain from scratch:
+
+```bash
+python -m pneumonia train --config configs/stage1_vgg16.yaml \
+  --data data/real_3class/train --checkpoint-dir results/stage1_vgg16
+```
+
+One config per model lives in `configs/`. `colab_full_training.ipynb` is the
+end-to-end Google Drive workflow used to produce the shipped checkpoints;
+`colab_stage1_training.ipynb` covers Stage 1 only.
+
+---
 
 ## Repository layout
 
 ```
-research/            paper-notes.md, method-spec.yaml, assumptions-and-open-questions.md,
-                     implementation-plan.md, TASKS.md
-src/pneumonia/       package: data, models, transfer, ensemble, train, evaluate, cli
-tests/               unit + integration tests
-configs/default.yaml hyperparameters (lr=1e-4 SGD, 80:20 split, 224x224)
-scripts/train.py     thin CLI wrapper
-results/             experiment outputs (created when you run experiments)
-Paper/               original paper PDF (scanned; extracted under research/pages/)
+docs/
+  RESULTS.md            every measured number, with the gap analysis
+  SETUP.md              install, data layout, known-good values, troubleshooting
+  EXERCISES.md          ten labs, most needing no GPU
+  REPORT_TEMPLATE.md    IEEE-style write-up scaffold, pre-filled
+  TODO.md               packaging checklist
+  figures/              generated from results/reproduction_run.json
+research/               paper notes, method spec, INFERRED/DEFAULT accounting
+src/pneumonia/          data, models, transfer, ensemble, train, evaluate, cli,
+                        reporting, checkpoints
+configs/                one YAML per model
+scripts/                train wrapper, three evaluation scripts, figure generation,
+                        dataset preparation
+tests/                  44 unit and integration tests
+results/
+  reproduction_run.json machine-readable source of truth for the published numbers
 ```
 
-## Prerequisites
+---
 
-- Python >= 3.9
-- Pip
-- CPU works fine; a GPU (>= 4 GB VRAM) speeds up training on the real dataset.
+## How every number is labelled
 
-## Installation
+The codebase tags every design decision so it stays auditable:
 
-```bash
-# clone / open this folder
-cd "D:\Projects\IEEE\IEEE-Projects\ML Projects\Pnemonia Treatment"
+| Label | Meaning |
+|---|---|
+| `PAPER-STATED` | Stated in the source paper. |
+| `INFERRED` | Not stated; an engineering decision was required. |
+| `DEFAULT` | Not stated; an engineering default was chosen. |
+| `UNKNOWN` | Not stated and no sensible choice was made. |
 
-# create & activate a virtual environment (recommended)
-python -m venv .venv
-.venv\Scripts\Activate.ps1   # PowerShell
+Every deviation, with its measured or expected impact, is listed in
+[`research/assumptions-and-open-questions.md`](research/assumptions-and-open-questions.md)
+and in the `deviations_from_paper` array of `results/reproduction_run.json`.
 
-# install dependencies + the package in editable mode
-python -m pip install -r requirements.txt
-python -m pip install -e .
-```
+### Deviations that move the numbers
 
-## Quickstart (verified)
+1. **Evaluation split.** The paper uses a stratified random 80:20 split over
+   all 5,856 images; this project uses the official patient-disjoint Kermany
+   split. The paper never publishes which images went where, so its split is
+   not reproducible.
+2. **Xception → Inception-v3.** torchvision has no Xception.
+3. **Inception-v3 at 224×224** rather than its native 299×224. This is the
+   measured cause of the Stage 1 collapse.
+4. **Training schedule.** The paper does not state epochs, batch size or
+   learning-rate decay. This project used 15 epochs at lr 1e-4 with no decay.
+5. **Augmentation.** The paper pre-expands the training set offline (bacterial
+   2,766→5,781, viral 1,514→3,149); this project transforms on the fly.
+6. **Class weights and a fixed 0.5 threshold.** The paper describes neither.
 
-All commands below were run and verified on this machine (CPU-only PyTorch).
+---
 
-### 1) Train on a synthetic smoke-test fixture
+## Documentation map
 
-The real Kermany dataset is gated behind an author request (see the paper's Data Availability section), so a synthetic fixture is used for smoke tests.
+| Question | Go to |
+|---|---|
+| What did it actually achieve? | [`docs/RESULTS.md`](docs/RESULTS.md) |
+| How do I run it? | [`docs/SETUP.md`](docs/SETUP.md) |
+| What can I build on it? | [`docs/EXERCISES.md`](docs/EXERCISES.md) |
+| How do I write it up? | [`docs/REPORT_TEMPLATE.md`](docs/REPORT_TEMPLATE.md) |
+| What did the paper say, exactly? | [`research/paper-notes.md`](research/paper-notes.md) |
+| Where were the assumptions? | [`research/assumptions-and-open-questions.md`](research/assumptions-and-open-questions.md) |
+| What may I do with it? | [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE) |
 
-```bash
-python -m pneumonia train --config configs/default.yaml --data synthetic
-```
-
-This trains `PneumoNet-v1` (SGD, lr=1e-4, Categorical Crossentropy) for the number of epochs in `configs/default.yaml` (default 10), saves checkpoints under `results/checkpoints/`, and writes `results/checkpoints/final_model.pt`.
-
-### 2) Evaluate
-
-```bash
-python -m pneumonia evaluate --config configs/default.yaml --data synthetic \
-  --model-weights results/checkpoints/final_model.pt
-```
-
-Prints accuracy, per-class precision/recall/F1, macro averages, confusion matrix, AUC, and Average Precision.
-
-### 3) Infer on a single chest X-ray
-
-```bash
-python -m pneumonia infer --image path/to/your_xray.png \
-  --checkpoint results/checkpoints/final_model.pt
-```
-
-Prints the predicted class (`Normal` / `Pneumonia`) and class probabilities.
-
-### 4) Run the test suite
-
-```bash
-python -m pytest tests/ -q
-```
-
-## Configuration
-
-Edit `configs/default.yaml` to change:
-- `training.model`: `pneumonet_v1` | `pneumonet_v2` | `vgg16` | `vgg19` | `inception_v3` | `resnet50` | `resnet101` | `densenet121` | `densenet169` | `mobilenet_v2`
-- `training.learning_rate`: paper-stated `0.0001` (SGD)
-- `training.epochs`, `data.batch_size`, `data.image_size` (paper: 224)
-- `data.train_ratio`: paper-stated `0.8`
-
-## Using the real dataset
-
-The paper's dataset (Kermany / Guangzhou Women and Children's Medical Center, 5,856 paediatric CXRs) is gated behind an author request in the paper's Data Availability section. This project trains on a public copy of the same underlying archive. You only need a local `chest_xray/` folder with this layout:
-
-```
-chest_xray/
-  train/
-    NORMAL/*.jpeg
-    PNEUMONIA/*.jpeg          # filenames contain BACTERIA / VIRUS
-  test/
-    NORMAL/*.jpeg
-    PNEUMONIA/*.jpeg
-```
-
-Class distributions:
-
-| Split | NORMAL | PNEUMONIA | PNEUMONIA breakdown |
-|-------|--------|-----------|---------------------|
-| train | 1,341 | 3,875 | bacterial 2,530 / viral 1,345 |
-| test  | 234 | 390 | bacterial 242 / viral 148 |
-
-The train split is class-imbalanced (~2.9:1 Pneumonia:NORMAL), so Stage 1 configs enable **class weighting** (`training.use_class_weights: true`) — without it the model collapsed to predicting every image as Pneumonia.
-
-### Prepare the data (local, no cloud services)
-
-`scripts/prepare_dataset.py` turns a raw `chest_xray` folder (or a `.zip` of it) into the Stage 1 / Stage 2 layouts. It handles both nested `PNEUMONIA/BACTERIA/` folders and flat `BACTERIA_*.jpeg` filenames.
-
-```bash
-python scripts/prepare_dataset.py --source /path/to/chest_xray --dst data
-```
-
-Output:
-- `data/stage1/{train,test}/{NORMAL,PNEUMONIA}` — detection
-- `data/stage2/{train,test}/{BACTERIAL,VIRAL}` — classification
-
-### Optional: build a fast 224px cache
-
-Decoding full-resolution JPEGs every epoch is the main CPU bottleneck. Build a resized cache once:
-
-```bash
-python scripts/prepare_cache.py --src data/stage1 --dst cache224/stage1 --workers 4
-python scripts/prepare_cache.py --src data/stage2 --dst cache224/stage2 --workers 4
-```
-
-### Colab training (full two-stage run)
-
-`colab_full_training.ipynb` is the end-to-end notebook. It:
-1. Mounts Google Drive and clones the repo
-2. Installs the package (`pip install -e .`) and verifies the GPU
-3. Reuses/prepares the Stage 1 & Stage 2 data on Drive
-4. Builds a local 224px cache (fast I/O)
-5. Trains the remaining Stage 1 models, skipping any with a `final_model.pt` already on Drive
-6. Trains the three Stage 2 models
-7. Evaluates each model, both ensembles, and the full two-stage pipeline
-
-`colab_stage1_training.ipynb` remains the Stage-1-only notebook.
-
-Training enables CUDA mixed precision (AMP) by default, `num_workers=2` and pinned memory. Checkpoints are written to fast local disk and only `final_model.pt` is copied to Drive, so a session is not throttled by hundreds of MB of per-epoch Drive writes.
-
-```bash
-# or train any single model locally
-python -m pneumonia train --config configs/stage1_vgg16.yaml --data /path/to/stage1/train
-python -m pneumonia evaluate --config configs/stage1_vgg16.yaml --data /path/to/stage1/test --checkpoint results/stage1_vgg16/final_model.pt
-```
-
-## Notes & known deviations from the paper (INFERRED / DEFAULT)
-
-1. **Ensemble aggregation.** The paper describes weighting and combining base-model probabilities (grid/genetic search over weights) but does not publish an explicit aggregation formula or the full set of optimal weights. This project uses a **weighted average of softmax probabilities** (engineering default). Published weights for the best detection combo are honored where available; classification-ensemble weights default to uniform and should be tuned on validation data.
-
-2. **Xception.** torchvision does not provide Xception; this project substitutes an Inception-v3 backbone with a new head (documented in `src/pneumonia/transfer.py`).
-
-3. **Input channels.** Chest X-rays are grayscale; the paper specifies a 3-channel 224×224 input. This project replicates the single channel to 3 channels (engineering default).
-
-4. **Batch size / epochs / seeds.** Not stated in the paper. Defaults: batch_size=32, epochs=10, seed=42 (configurable).
-
-5. **Adaptive pooling.** The paper's conv-trunk description can over-reduce small inputs; an `AdaptiveAvgPool2d((7,7))` is applied before the classifier to keep the dense input fixed (engineering default). The paper-stated input size is 224×224.
+---
 
 ## Reproducibility
 
-- Seeds: Python/numpy/torch seeded to 42 by default.
-- Versions recorded at install: `torch 2.14.1`, `torchvision 0.29.1`, `scikit-learn 1.9.1`, `Pillow 13.0.0`, `numpy 2.4.6`, `matplotlib 3.11.2`.
-- Training runs log per-epoch train/val loss and accuracy; checkpoints store model + optimizer state and epoch.
+* Seeds fixed at 42 for splits and fixture generation.
+* Versions at the time of the recorded run: `torch 2.14.1`,
+  `torchvision 0.29.1`, `scikit-learn 1.9.1`, `Pillow 13.0.0`, `numpy 2.4.6`,
+  `matplotlib 3.11.2`, Python 3.13 on Google Colab (CUDA).
+* `pytest -q` — 44 tests covering the custom CNNs, transfer backbones, ensemble
+  aggregation, data pipeline, training loop, checkpoint round-trip, the Stage 2
+  breakdown helper and result serialisation.
+* Every reported number is regenerated from `results/reproduction_run.json` by
+  `scripts/make_figures.py`; nothing in the figures is hand-drawn.
 
-## Paper-reported results (reference only; not reproduced here)
+---
 
-These are the values stated in the paper. They could not be reproduced exactly because the real dataset and exact ensemble weights are not publicly available.
+## Licence and citation
 
-- Detection ensemble (Normal vs. Pneumonia): **98.03%** test accuracy; AUC **0.97**.
-- Classification ensemble (Bacterial vs. Viral): **91.93%** test accuracy; AUC **0.91**.
-- Individual PneumoNet-v1: 96.2% (detection), 87.3% (classification).
-- Individual PneumoNet-v2: 96.8% (detection).
+Code: MIT ([`LICENSE`](LICENSE)). This is an independent reimplementation; it
+is not affiliated with or endorsed by the paper's authors. The paper is CC BY
+4.0 and must be attributed. The dataset and ImageNet-pretrained weights have
+their own terms and are **not** redistributed here. Educational use only — see
+[`NOTICE`](NOTICE).
 
-## Research documentation
+If you use this work, cite both the software and the paper
+([`CITATION.cff`](CITATION.cff)):
 
-See `research/` for the paper analysis:
-- `paper-notes.md` — section-by-section summary, equation glossary, evidence labels
-- `method-spec.yaml` — structured method specification
-- `assumptions-and-open-questions.md` — INFERRED/DEFAULT/UNKNOWN items
-- `implementation-plan.md` + `TASKS.md` — task tracker with status
-
-## License
-
-Code: MIT (see `LICENSE` if added). The source paper is CC BY 4.0. This project is an independent reimplementation and is not affiliated with the paper's authors.
-
-## Citation
-
-If you use this work, please cite the original paper:
-
-> Godbole, S., Kattukaran, A., Savla, S., Pradhan, V., Kanani, P., & Patil, D. (2024). Enhancing Paediatric Pneumonia Detection and Classification Using Customized CNNs and Transfer Learning Based Ensemble Models. *Int. Res. J. Multidisc. Technovation*, 6(6), 38–53. https://doi.org/10.54392/irjtmt2463
+> S. Godbole, A. Kattukaran, S. Savla, V. Pradhan, P. Kanani, and D. Patil,
+> "Enhancing Paediatric Pneumonia Detection and Classification Using Customized
+> CNNs and Transfer Learning Based Ensemble Models," *Int. Res. J. Multidisc.
+> Technovation*, vol. 6, no. 6, pp. 38–53, 2024, doi: 10.54392/irjtmt2463.

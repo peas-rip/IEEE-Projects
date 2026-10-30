@@ -26,6 +26,8 @@ from pneumonia.data import DatasetConfig
 from pneumonia.transfer import TransferLearningModel
 from pneumonia.models import PneumoNetV1, PneumoNetV2
 from pneumonia.evaluate import compute_metrics, predict_probs
+from pneumonia.reporting import write_json
+from pneumonia.checkpoints import checkpoint_path
 
 
 def load_model(model_name, weights_path, num_classes=2):
@@ -88,6 +90,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Evaluate the Stage 1 detection ensemble")
     parser.add_argument("--allow-missing", action="store_true",
                         help="Evaluate with the members that exist and renormalise their weights")
+    parser.add_argument("--json", metavar="PATH", default=None,
+                        help="Write the metrics of this run to a JSON file")
     args = parser.parse_args(argv)
 
     # Paper's published Stage 1 ensemble weights
@@ -98,12 +102,13 @@ def main(argv=None):
         "pneumonet_v1": 1,
     }
 
-    # Paths to the four trained Stage 1 models (update as needed)
+    # Paths to the four trained Stage 1 models. Override the root with
+    # PNEUMONIA_CHECKPOINT_DIR when the files live elsewhere (e.g. Colab Drive).
     members = {
-        "pneumonet_v1": "results/stage1_pneumonet_v1/final_model.pt",
-        "pneumonet_v2": "results/stage1_pneumonet_v2/final_model.pt",
-        "vgg16": "results/stage1_vgg16/final_model.pt",
-        "inception_v3": "results/stage1_inception/final_model.pt",
+        "pneumonet_v1": checkpoint_path("stage1_pneumonet_v1"),
+        "pneumonet_v2": checkpoint_path("stage1_pneumonet_v2"),
+        "vgg16": checkpoint_path("stage1_vgg16"),
+        "inception_v3": checkpoint_path("stage1_inception", "stage1_inception_v3"),
     }
 
     members = available_members(members, args.allow_missing)
@@ -147,11 +152,13 @@ def main(argv=None):
     print(f"Using device: {device}")
 
     member_probs = {}
+    solo_metrics = {}
     y_true = None
     for name, model in models.items():
         y_true, probs = predict_probs(model.to(device), test_loader, device=device)
         member_probs[name] = probs
         solo = compute_metrics(y_true, probs, class_names=class_names)
+        solo_metrics[name] = solo
         print(f"  {name:15s} solo accuracy: {solo['accuracy']:.4f}  AUC: {solo.get('auc_ovr'):.4f}")
 
     # --- Paper's published weights ---
@@ -194,6 +201,19 @@ def main(argv=None):
     print(f"F1 (per cls):        {[round(f,4) for f in metrics['f1_per_class']]}")
     print(f"Confusion matrix:    {metrics['confusion_matrix']}")
     print(f"\nPaper Stage 1 target: accuracy 98.03%, AUC 0.97")
+
+    if args.json:
+        write_json(args.json, {
+            "stage": "stage1",
+            "dataset": {"root": "data/real_3class/test", "num_images": len(binary_test_ds),
+                        "classes": class_names},
+            "checkpoints": dict(members),
+            "solo": solo_metrics,
+            "paper_weights": dict(zip(names, paper_weights)),
+            "paper_ensemble": paper_metrics,
+            "grid_weights": dict(zip(names, best_w)),
+            "grid_ensemble": metrics,
+        })
     return 0
 
 

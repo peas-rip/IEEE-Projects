@@ -34,6 +34,8 @@ from pneumonia.transfer import TransferLearningModel
 from pneumonia.models import PneumoNetV1, PneumoNetV2
 from pneumonia.data import DatasetConfig, get_transforms
 from pneumonia.evaluate import compute_metrics, predict_probs
+from pneumonia.reporting import write_json
+from pneumonia.checkpoints import checkpoint_path
 from torchvision.datasets import ImageFolder
 from torch.utils.data import DataLoader
 
@@ -175,6 +177,8 @@ def main(argv=None):
     parser.add_argument("--ablate", action="store_true",
                         help="Also score the pipeline without Inception-v3 and with "
                              "Stage 2 weights 2/3/5 (extra forward passes, no retraining)")
+    parser.add_argument("--json", metavar="PATH", default=None,
+                        help="Write the metrics of this run to a JSON file")
     args = parser.parse_args(argv)
 
     # Paper's published Stage 1 ensemble weights
@@ -185,19 +189,22 @@ def main(argv=None):
         "pneumonet_v1": 1,
     }
 
-    # Stage 1 model paths (Normal vs Pneumonia)
+    # Stage 1 model paths (Normal vs Pneumonia). Override the root with
+    # PNEUMONIA_CHECKPOINT_DIR when the files live elsewhere (e.g. Colab Drive).
     stage1_members = {
-        "pneumonet_v1": "results/stage1_pneumonet_v1/final_model.pt",
-        "pneumonet_v2": "results/stage1_pneumonet_v2/final_model.pt",
-        "vgg16": "results/stage1_vgg16/final_model.pt",
-        "inception_v3": "results/stage1_inception/final_model.pt",
+        "pneumonet_v1": checkpoint_path("stage1_pneumonet_v1"),
+        "pneumonet_v2": checkpoint_path("stage1_pneumonet_v2"),
+        "vgg16": checkpoint_path("stage1_vgg16"),
+        "inception_v3": checkpoint_path("stage1_inception", "stage1_inception_v3"),
     }
 
     # Stage 2 model paths (Bacterial vs Viral)
     stage2_members = {
-        "pneumonet_v1": "results/stage2_pneumonet_v1/final_model.pt",
-        "mobilenet_v2": "results/stage2_mobilenet/final_model.pt",
-        "inception_v3": "results/stage2_xception/final_model.pt",  # Xception substitute
+        # "stage2_checkpoints" is the directory used by the first training run.
+        "pneumonet_v1": checkpoint_path("stage2_pneumonet_v1", "stage2_checkpoints"),
+        "mobilenet_v2": checkpoint_path("stage2_mobilenet"),
+        # Xception substitute
+        "inception_v3": checkpoint_path("stage2_xception", "stage2_inception_v3"),
     }
 
     stage1_members = available_members(stage1_members, args.allow_missing)
@@ -360,6 +367,7 @@ def main(argv=None):
     print(f"Stage 1 CM:\n{confusion_matrix(y_true_binary, y_pred_binary)}")
 
     # Stage 2: scored only on the pneumonia images Stage 1 actually routed onward.
+    stage2_report = None
     if use_binary_stage1:
         print("\nStage 2 breakdown skipped: binary test data has no BACTERIAL/VIRAL labels.")
     elif y_true_binary.any():
@@ -368,6 +376,7 @@ def main(argv=None):
         print("-"*60)
 
         bd = stage2_breakdown(y_true, y_pred, y_true_binary == 1)
+        stage2_report = bd
         print(f"Samples: {bd['n_pneumonia']} pneumonia, {bd['n_routed']} routed to Stage 2, "
               f"{bd['n_missed']} missed by Stage 1")
         print(f"Stage 2 Accuracy (operating set):        {bd['accuracy_routed']:.4f}")
@@ -380,6 +389,7 @@ def main(argv=None):
 
     # Optional ablations: re-score the pipeline with different members/weights.
     # Extra forward passes only - nothing is retrained.
+    ablation_scores = {}
     if args.ablate and not use_binary_stage1:
         print("\n" + "-"*60)
         print("  ABLATIONS (no retraining)")
@@ -407,12 +417,44 @@ def main(argv=None):
         print(f"both:                               {score(drop_det, grid_cls):.4f}")
         print("(2/3/5 was grid-searched on this test set -> optimistic when scored here)")
 
+        ablation_scores = {
+            "baseline": score(base_det, base_cls),
+            "drop_inception_stage1": score(drop_det, base_cls),
+            "stage2_weights_2_3_5": score(base_det, grid_cls),
+            "both": score(drop_det, grid_cls),
+        }
+
     print("\n" + "="*60)
     print("  PAPER TARGETS")
     print("="*60)
     print("Stage 1 (Detection):  Accuracy 98.03%, AUC 0.97")
     print("Stage 2 (Classif.):   Accuracy 91.93%, AUC 0.91")
     print("Full Pipeline:        3-class classification")
+
+    if args.json:
+        stage1_report = {
+            "accuracy": accuracy_score(y_true_binary, y_pred_binary),
+            "precision": precision_score(y_true_binary, y_pred_binary),
+            "recall": recall_score(y_true_binary, y_pred_binary),
+            "f1": f1_score(y_true_binary, y_pred_binary),
+            "confusion_matrix": confusion_matrix(y_true_binary, y_pred_binary),
+            "routed_to_stage2": int((y_pred_binary == 1).sum()),
+        }
+        write_json(args.json, {
+            "stage": "pipeline",
+            "dataset": {"root": test_root, "num_images": len(test_ds),
+                        "classes": list(class_names)},
+            "checkpoints": {
+                "stage1": dict(stage1_members),
+                "stage2": dict(stage2_members),
+            },
+            "stage1_weights": dict(zip(s1_names, s1_weights)),
+            "stage2_weights": dict(zip(s2_names, [1.0] * len(s2_names))),
+            "overall": metrics,
+            "stage1": stage1_report,
+            "stage2": stage2_report,
+            "ablations": ablation_scores,
+        })
 
     return 0
 

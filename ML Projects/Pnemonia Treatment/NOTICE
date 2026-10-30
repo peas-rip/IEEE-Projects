@@ -1,0 +1,142 @@
+Pneumonia Treatment — Notices and Third-Party Terms
+====================================================
+
+This file records the provenance of everything this repository is built on, and
+the limits of how it may be used. Read it before redistributing anything.
+
+
+1. WHAT THIS PROJECT IS
+-----------------------
+
+An independent, educational reimplementation of the method described in:
+
+  S. Godbole, A. Kattukaran, S. Savla, V. Pradhan, P. Kanani and D. Patil,
+  "Enhancing Paediatric Pneumonia Detection and Classification Using
+  Customized CNNs and Transfer Learning Based Ensemble Models",
+  Int. Res. J. Multidisc. Technovation, vol. 6, no. 6, pp. 38-53, 2024.
+  doi: 10.54392/irjtmt2463
+
+The code here was written from the paper's published description. It is not the
+authors' code, it is not affiliated with or endorsed by them, and the results
+obtained with it differ materially from the paper's reported results (see
+docs/RESULTS.md). Any error in the reimplementation is ours, not theirs.
+
+
+2. EDUCATIONAL USE ONLY — NOT A MEDICAL DEVICE
+----------------------------------------------
+
+This software is provided for teaching, research and portfolio work.
+
+  * It is NOT a medical device.
+  * It is NOT cleared or approved by any regulatory authority (FDA, CE, or
+    otherwise).
+  * It MUST NOT be used to diagnose, triage, screen or otherwise influence the
+    care of any patient.
+  * It MUST NOT be presented in clinical, commercial or patient-facing material
+    without independent regulatory review.
+  * Reported probabilities are outputs of a class-weighted classifier at a
+    fixed decision threshold. They are not calibrated clinical risks.
+
+The training data covers paediatric patients aged 1-5 from a single
+institution, and the model recognises exactly two pneumonia subtypes. Any other
+pathology, adult patient, or out-of-distribution image will be misclassified.
+
+The authors of this repository accept no liability for any use outside the
+scope described above.
+
+
+3. SOURCE PAPER
+---------------
+
+The paper is published under a Creative Commons Attribution 4.0 International
+Licence (CC BY 4.0):
+
+  https://creativecommons.org/licenses/by/4.0/
+
+Reusing this repository therefore requires you to attribute Godbole et al. and
+to state clearly whether changes were made. That obligation is passed on to
+downstream users by the attribution requirement in docs/RESULTS.md and
+docs/REPORT_TEMPLATE.md.
+
+The paper's figures, tables and reported figures are reproduced here only as
+factual claims in discussion. No figure or table image from the paper is
+redistributed in this repository.
+
+
+4. KERMANY CHEST X-RAY DATASET
+------------------------------
+
+The dataset used for training and evaluation is the paediatric chest X-ray
+corpus associated with:
+
+  M. Kermany, K. Zhang and M. Goldbaum,
+  "Labeled Optical Coherence Tomography (OCT) and Chest X-Ray Images for
+  Classification", Mendeley Data, V2, 2018.
+  doi: 10.17632/rscbjw95tg.2
+
+  * THE DATASET IS NOT BUNDLED WITH THIS REPOSITORY. Obtain it directly from
+    its publisher and review the licence that applies to your use.
+  * This repository includes only scripts that rearrange a local copy into the
+    directory layout the code expects.
+  * The dataset originates from Guangzhou Women and Children's Medical Center
+    and contains images of identifiable paediatric patients that were released
+    by their publisher for research use. Do not attempt to re-identify anyone,
+    and do not use it for clinical purposes.
+  * If you redistribute anything derived from the dataset, comply with the
+    publisher's licence and attribution requirements at that time.
+
+
+5. IMAGENET-PRETRAINED WEIGHTS
+------------------------------
+
+VGG-16, Inception-v3 and MobileNet-v2 are initialised from weights pretrained
+on ImageNet (ILSVRC), distributed with the torchvision library.
+
+  * These weights are made available by their original providers for research
+    and educational use.
+  * They are not redistributed here; torchvision downloads them on first use.
+  * Weights fine-tuned on this dataset are derivative works of those weights.
+    If you intend to publish or sell a trained checkpoint, review the terms
+    imposed by the original weight providers first. This project does not
+    grant any rights to those weights.
+
+See the torchvision documentation for the terms of the individual weight sets.
+
+
+6. THIRD-PARTY LIBRARIES
+------------------------
+
+torch, torchvision, scikit-learn, NumPy, Matplotlib, Pillow, PyYAML and tqdm
+are used under their own respective licences. They are not vendored in this
+repository.
+
+
+7. DEVIATIONS FROM THE PAPER
+----------------------------
+
+The reimplementation contains deliberate deviations from the published method.
+Each is labelled INFERRED or DEFAULT in the code comments and listed in
+research/assumptions-and-open-questions.md and results/reproduction_run.json.
+The most significant are:
+
+  * Xception is replaced by Inception-v3, because torchvision ships no Xception.
+  * Inception-v3 is run at 224x224 rather than its native 299x299.
+  * The evaluation split follows the official Kermany layout rather than the
+    paper's unpublished stratified random 80:20 split.
+  * Training schedule details (epochs, batch size, learning-rate decay) were not
+    published by the paper and were chosen as engineering defaults.
+  * Class weights and a fixed 0.5 decision threshold are applied; the paper
+    describes neither.
+
+None of these are the work of the paper's authors, and none of them should be
+attributed to the paper.
+
+
+8. ACADEMIC USE
+---------------
+
+This repository is intended to be studied and modified. It is not intended to
+be submitted as coursework that is wholly your own work. Institutions define
+this differently; follow your own policy and cite what you reuse. The exercises
+in docs/EXERCISES.md are designed so that the analysis you produce is yours
+even though the baseline is not.

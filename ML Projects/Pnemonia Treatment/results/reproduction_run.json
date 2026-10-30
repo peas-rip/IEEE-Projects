@@ -1,0 +1,292 @@
+{
+  "schema_version": 1,
+  "run_id": "colab-full-training",
+  "title": "Two-stage paediatric pneumonia detection/classification — evaluation of the 7 trained checkpoints",
+  "provenance": {
+    "source": "Transcribed from the console output of scripts/evaluate_stage1_ensemble.py, scripts/evaluate_stage2_ensemble.py and scripts/evaluate_full_pipeline.py --ablate, run on Google Colab against the 7 checkpoints stored on Google Drive.",
+    "transcribed_by": "package release pass",
+    "transcription_note": "Only aggregate metrics and confusion matrices were captured. Per-image predictions and probability scores were NOT retained, so ROC/PR curves cannot be redrawn from this file — rerun the scripts with --json to regenerate this schema, or add a per-image dump.",
+    "environment": {
+      "python": "3.13",
+      "device": "cuda",
+      "gpu": null,
+      "torch": null,
+      "note": "GPU model and library versions were not recorded in the captured output."
+    },
+    "checkpoint_location": "/content/drive/MyDrive/PneumoniaProject/checkpoints/<config>/final_model.pt",
+    "expected_local_location": "results/<config>/final_model.pt",
+    "checkpoints_present_locally": false,
+    "reproduce": [
+      "python scripts/evaluate_stage1_ensemble.py --json results/stage1_ensemble.json",
+      "python scripts/evaluate_stage2_ensemble.py --json results/stage2_ensemble.json",
+      "python scripts/evaluate_full_pipeline.py --ablate --json results/pipeline_ablation.json"
+    ]
+  },
+  "dataset": {
+    "name": "Kermany paediatric chest X-ray (Kaggle: paultimothymooney/chest-xray-pneumonia)",
+    "split_policy": "Official Kermany directory split (train/val/test), NOT the paper's stratified 80:20 random split.",
+    "stage1_split": {
+      "train": 4172,
+      "val": 1044,
+      "test": 624,
+      "note": "train+val are the official 5,216-image training folder, split 80:20 at runtime (seed 42). There is no val/ directory on disk." },
+    "stage2_split": {
+      "train": 3875,
+      "val": null,
+      "test": 390,
+      "note": "Pneumonia-only subset. Train 3,875 is split 80:20 at runtime (3,100 / 775). Test = 242 BACTERIAL + 148 VIRAL." },
+    "test_composition": {
+      "NORMAL": 234,
+      "BACTERIAL": 242,
+      "VIRAL": 148,
+      "total": 624 },
+    "input_size": [224, 224],
+    "channels": 3,
+    "augmentation": "On-the-fly transforms (flip, rotation, scaling, brightness/contrast). The paper instead pre-expanded bacterial 2,766->5,781 and viral 1,514->3,149 offline."
+  },
+  "paper_targets": {
+    "stage1_accuracy": 0.9803,
+    "stage1_auc": 0.97,
+    "stage2_accuracy": 0.9193,
+    "stage2_auc": 0.91,
+    "full_pipeline_accuracy": null,
+    "source": "Godbole et al. 2024, Tables 2-4. The paper does not report a 3-class end-to-end figure."
+  },
+  "stage1": {
+    "task": "NORMAL vs PNEUMONIA (detection)",
+    "class_order": ["NORMAL", "PNEUMONIA"],
+    "test_set": {
+      "root": "data/real_3class/test",
+      "num_images": 624,
+      "class_counts": { "NORMAL": 234, "PNEUMONIA": 390 } },
+    "members": [
+      {
+        "name": "pneumonet_v1",
+        "family": "custom CNN (trained from scratch)",
+        "weight": 1,
+        "accuracy": 0.8285,
+        "auc_ovr": 0.9456,
+        "note": "Paper reports 96.2%."
+      },
+      {
+        "name": "pneumonet_v2",
+        "family": "custom CNN (trained from scratch)",
+        "weight": 3,
+        "accuracy": 0.8510,
+        "auc_ovr": 0.9298,
+        "note": "Paper reports 96.8%."
+      },
+      {
+        "name": "vgg16",
+        "family": "torchvision VGG-16, ImageNet-pretrained, fine-tuned",
+        "weight": 5,
+        "accuracy": 0.9119,
+        "auc_ovr": 0.9690,
+        "note": "Strongest single member; AUC already exceeds the paper's ensemble AUC."
+      },
+      {
+        "name": "inception_v3",
+        "family": "torchvision Inception-v3, ImageNet-pretrained, fine-tuned at 224px",
+        "weight": 4,
+        "accuracy": 0.6458,
+        "auc_ovr": 0.7969,
+        "note": "COLLAPSED. NORMAL recall 0.056 — predicts PNEUMONIA for almost every image. Net harmful to the ensemble (see ablations)."
+      }
+    ],
+    "ensemble": {
+      "weights": { "vgg16": 5, "inception_v3": 4, "pneumonet_v2": 3, "pneumonet_v1": 1 },
+      "weights_source": "Published in the paper (Section 4.1) — reproduced exactly.",
+      "aggregation": "Weighted average of softmax probabilities (INFERRED; the paper gives no equation).",
+      "accuracy": 0.8606,
+      "auc_ovr": 0.9634,
+      "precision": 0.8244,
+      "recall": 0.9872,
+      "f1": 0.8985,
+      "confusion_matrix": [[152, 82], [5, 385]],
+      "note": "High sensitivity (385/390 pneumonia caught), weak specificity (82/234 normals flagged)."
+    }
+  },
+  "stage2": {
+    "task": "BACTERIAL vs VIRAL (pneumonia images only)",
+    "class_order": ["BACTERIAL", "VIRAL"],
+    "test_set": {
+      "root": "data/real_stage2/test",
+      "num_images": 390,
+      "class_counts": { "BACTERIAL": 242, "VIRAL": 148 } },
+    "members": [
+      {
+        "name": "pneumonet_v1",
+        "family": "custom CNN (trained from scratch)",
+        "weight": 1.0,
+        "accuracy": 0.8205,
+        "auc_ovr": 0.9396
+      },
+      {
+        "name": "mobilenet_v2",
+        "family": "torchvision MobileNet-v2, ImageNet-pretrained, fine-tuned",
+        "weight": 1.0,
+        "accuracy": 0.8513,
+        "auc_ovr": 0.9370
+      },
+      {
+        "name": "inception_v3",
+        "family": "SUBSTITUTE for Xception (torchvision has no Xception)",
+        "weight": 1.0,
+        "accuracy": 0.7026,
+        "auc_ovr": 0.7845,
+        "note": "Documented INFERRED deviation from the paper."
+      }
+    ],
+    "ensemble": {
+      "weights": { "pneumonet_v1": 1.0, "mobilenet_v2": 1.0, "inception_v3": 1.0 },
+      "weights_source": "Grid search over integers 1-6, fitted on the TEST set (the paper searched 1-15 / 1-20 and did not publish the result). Optimistic.",
+      "aggregation": "Weighted average of softmax probabilities (INFERRED).",
+      "accuracy": 0.8949,
+      "auc_ovr": 0.9390,
+      "precision": null,
+      "recall": null,
+      "f1": null,
+      "confusion_matrix": null,
+      "note": "Scored on all 390 pneumonia images, independent of Stage 1. Per-class detail was not captured for this standalone run; see pipeline.stage2_breakdown for the routed-set breakdown."
+    }
+  },
+  "pipeline": {
+    "task": "3-class end-to-end: NORMAL / BACTERIAL / VIRAL",
+    "class_order": ["NORMAL", "BACTERIAL", "VIRAL"],
+    "test_set": {
+      "root": "data/real_3class/test",
+      "num_images": 624,
+      "class_counts": { "NORMAL": 234, "BACTERIAL": 242, "VIRAL": 148 } },
+    "accuracy": 0.7853,
+    "auc_ovr": 0.9503,
+    "ap_macro": 0.9135,
+    "precision_per_class": [0.9682, 0.9079, 0.5481],
+    "recall_per_class": [0.6496, 0.8554, 0.8851],
+    "f1_per_class": [0.7775, 0.8809, 0.6770],
+    "confusion_matrix": [[152, 6, 76], [3, 207, 32], [2, 15, 131]],
+    "correct": 490,
+    "errors": 134,
+    "stage1_breakdown": {
+      "accuracy": 0.8606,
+      "precision": 0.8244,
+      "recall": 0.9872,
+      "f1": 0.8985,
+      "confusion_matrix": [[152, 82], [5, 385]],
+      "routed_to_stage2": 385
+    },
+    "stage2_breakdown": {
+      "n_pneumonia": 390,
+      "n_routed": 385,
+      "n_missed_by_stage1": 5,
+      "accuracy_operating_set": 0.8779,
+      "accuracy_misses_counted_wrong": 0.8667,
+      "precision": [0.9324, 0.8037],
+      "recall": [0.8661, 0.8973],
+      "f1": [0.8980, 0.8479],
+      "confusion_matrix": [[207, 32], [15, 131]],
+      "note": "Rows = true BACTERIAL/VIRAL; Stage-1 misses excluded."
+    },
+    "error_analysis": {
+      "stage1_errors": 87,
+      "stage1_false_positives_normal_called_pneumonia": 82,
+      "stage1_false_negatives_pneumonia_missed": 5,
+      "stage1_errors_share_of_pipeline_errors": 0.6493,
+      "missed_normals_routed_to_viral": 76,
+      "observed_pattern": "Most pipeline errors are healthy lungs flagged as pneumonia and then classified VIRAL. Viral precision (0.548) is the direct symptom; Stage 1 specificity is the root cause."
+    }
+  },
+  "ablations": {
+    "method": "Re-scoring only — extra forward passes, no retraining. --ablate flag.",
+    "results": [
+      {
+        "name": "baseline",
+        "description": "Paper Stage 1 weights (5/4/3/1) and equal Stage 2 weights",
+        "accuracy": 0.7853,
+        "delta_vs_baseline": 0.0,
+        "images_fixed": 0
+      },
+      {
+        "name": "drop_inception_stage1",
+        "description": "Stage 1 = VGG-16 / PneumoNet-v2 / PneumoNet-v1 only; weights renormalised 5/3/1",
+        "accuracy": 0.8301,
+        "delta_vs_baseline": 0.0448,
+        "images_fixed": 28
+      },
+      {
+        "name": "stage2_weights_2_3_5",
+        "description": "Stage 2 weights pneumonet_v1=2, mobilenet_v2=3, inception_v3=5",
+        "accuracy": 0.7981,
+        "delta_vs_baseline": 0.0128,
+        "images_fixed": 8,
+        "caveat": "Weights were grid-searched on this same test set; the honest gain when fitted on validation is likely 0.5-1.0 points."
+      },
+      {
+        "name": "both",
+        "description": "Drop Inception from Stage 1 AND Stage 2 weights 2/3/5",
+        "accuracy": 0.8429,
+        "delta_vs_baseline": 0.0576,
+        "images_fixed": 36,
+        "caveat": "Inherits the test-fitted Stage 2 weights caveat above."
+      }
+    ],
+    "finding": "The two repairs are exactly additive (28 + 8 = 36 images) and touch disjoint error sets, i.e. they do not interact. Removing one collapsed member (Inception-v3) from Stage 1 is worth more than any reweighting.",
+    "recommended_headline_config": "drop_inception_stage1 (0.8301) — it depends on no test-set fitting."
+  },
+  "deviations_from_paper": [
+    {
+      "item": "Evaluation split",
+      "paper": "Stratified 80:20 random split over all 5,856 images; no separate validation set.",
+      "project": "Official Kermany train/val/test split: 4,172 / 1,044 / 624.",
+      "label": "DIFFERENT PROTOCOL",
+      "impact": "Largest single explanation for the accuracy gap; the project's test set is patient-disjoint and harder. The paper's split is not reproducible as published."
+    },
+    {
+      "item": "Xception (Stage 2)",
+      "paper": "Xception",
+      "project": "Inception-v3 substitute",
+      "label": "INFERRED",
+      "impact": "torchvision ships no Xception. Unquantified but the substitute is the weakest Stage 2 member."
+    },
+    {
+      "item": "Inception-v3 input size",
+      "paper": "299x299",
+      "project": "224x224, aux classifier removed",
+      "label": "INFERRED",
+      "impact": "Measured: the model collapsed (0.6458 accuracy, NORMAL recall 0.056) and cost the pipeline 4.48 points."
+    },
+    {
+      "item": "PneumoNet-v1 first conv",
+      "paper": "\"1x3\" convolution (probable OCR/typographical artefact)",
+      "project": "3x3",
+      "label": "INFERRED",
+      "impact": "None measurable; documented in research/assumptions-and-open-questions.md."
+    },
+    {
+      "item": "Training schedule",
+      "paper": "Epochs, batch size and LR decay not stated",
+      "project": "15 epochs, batch 32, SGD lr 1e-4, no schedule",
+      "label": "DEFAULT",
+      "impact": "The two from-scratch CNNs are 11-13 points below the paper — most likely under-trained."
+    },
+    {
+      "item": "Class imbalance handling",
+      "paper": "Not described",
+      "project": "Inverse-frequency class weights + 0.5 decision threshold",
+      "label": "INFERRED",
+      "impact": "Trades specificity for sensitivity: recall 0.987, precision 0.824. Part of the AUC (0.950) vs accuracy (0.785) gap."
+    },
+    {
+      "item": "Stage 2 ensemble weights",
+      "paper": "Searched ranges 1-15 / 1-20; result not published",
+      "project": "Grid search 1-6 fitted on the test set",
+      "label": "INFERRED",
+      "impact": "Makes 0.8949 / 0.7981 / 0.8429 optimistic."
+    }
+  ],
+  "headline_numbers": {
+    "faithful_reproduction": 0.7853,
+    "same_pipeline_minus_broken_member": 0.8301,
+    "best_zero_cost_configuration": 0.8429,
+    "do_not_quote_as_paper_result": 0.9803
+  }
+}

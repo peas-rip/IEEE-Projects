@@ -1,0 +1,73 @@
+# Citation metadata for this repository.
+# Validate with:  pip install cffconvert && cffconvert --validate
+cff-version: 1.2.0
+message: "If you use this project, please cite both this software and the paper it reimplements."
+title: "Educational reimplementation of a two-stage paediatric pneumonia ensemble"
+type: software
+version: 0.1.0
+date-released: 2026-10-30
+license: MIT
+abstract: >-
+  A reproducible, educational reimplementation of the two weighted ensemble
+  models for paediatric pneumonia described by Godbole et al. (2024): a
+  Normal-vs-Pneumonia detection ensemble and a Bacterial-vs-Viral
+  classification ensemble arranged as an inference cascade. The project
+  reproduces the published architecture and Stage 1 ensemble weights, evaluates
+  them on the official patient-disjoint Kermany test split, and reports the
+  measured difference from the paper's figures together with a per-member
+  failure analysis and a zero-retraining ablation.
+keywords:
+  - pneumonia
+  - chest x-ray
+  - ensemble methods
+  - transfer learning
+  - reproducibility
+  - evaluation protocol
+  - educational resource
+authors:
+  - name: "Pneumonia Treatment Project contributors"
+    website: "https://example.org/pneumonia-treatment"
+    # TODO: replace with your ORCID, name and affiliation before publishing.
+    # CFF validators require real entries; this placeholder is not a person.
+repository-code: "https://github.com/example/pneumonia-treatment"
+url: "https://github.com/example/pneumonia-treatment"
+# The work this repository reimplements. Cite it alongside this software.
+preferred-citation:
+  type: article
+  authors:
+    - family-names: Godbole
+      given-names: Shubham
+    - family-names: Kattukaran
+      given-names: Adit
+    - family-names: Savla
+      given-names: Saurin
+    - family-names: Pradhan
+      given-names: Vedant
+    - family-names: Kanani
+      given-names: Pratik
+    - family-names: Patil
+      given-names: Deepali
+  title: "Enhancing Paediatric Pneumonia Detection and Classification Using Customized CNNs and Transfer Learning Based Ensemble Models"
+  collection-title: "International Research Journal of Multidisciplinary Technovation"
+  year: 2024
+  volume: 6
+  issue: 6
+  start: 38
+  end: 53
+  doi: 10.54392/irjtmt2463
+references:
+  - type: data
+    authors:
+      - family-names: Kermany
+        given-names: Michael
+      - family-names: Zhang
+        given-names: Kang
+      - family-names: Goldbaum
+        given-names: Caroline
+    title: "Labeled Optical Coherence Tomography (OCT) and Chest X-Ray Images for Classification"
+    year: 2018
+    version: V2
+    publisher:
+      name: Mendeley Data
+    doi: 10.17632/rscbjw95tg.2
+    license: "See the publisher's terms for the current licence."
