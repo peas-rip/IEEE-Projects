@@ -288,5 +288,41 @@
     "same_pipeline_minus_broken_member": 0.8301,
     "best_zero_cost_configuration": 0.8429,
     "do_not_quote_as_paper_result": 0.9803
+  },
+  "local_verification": {
+    "date": "2026-10-30",
+    "purpose": "Independent re-evaluation of the shipped checkpoints on a second machine, to confirm the recorded figures were not a transcription artefact of the original Colab console output.",
+    "environment": {
+      "python": "3.11",
+      "torch": "2.6.0+cu124",
+      "torchvision": "0.21.0",
+      "device": "cuda",
+      "note": "Different torch/Pillow stack from the recorded Colab run, so small deltas are expected from image decoding and reduction-order differences."
+    },
+    "checkpoint_root": "checkpoints",
+    "method": "Reran evaluate_stage1_ensemble.py, evaluate_stage2_ensemble.py and evaluate_full_pipeline.py --ablate against the same test splits.",
+    "verdict": "All headline claims reproduce. The largest deltas are a handful of images; none change any conclusion in docs/RESULTS.md.",
+    "deltas": [
+      { "metric": "stage1_ensemble_accuracy", "local": 0.8638, "recorded": 0.8606, "images": 2 },
+      { "metric": "stage1_ensemble_auc", "local": 0.9600, "recorded": 0.9634 },
+      { "metric": "stage2_ensemble_accuracy", "local": 0.9103, "recorded": 0.8949, "images": 6 },
+      { "metric": "stage2_ensemble_auc", "local": 0.9383, "recorded": 0.9390 },
+      { "metric": "pipeline_accuracy", "local": 0.7901, "recorded": 0.7853, "images": 3 },
+      { "metric": "pipeline_auc", "local": 0.9481, "recorded": 0.9503 },
+      { "metric": "ablation_drop_inception", "local": 0.8333, "recorded": 0.8301, "images": 2 },
+      { "metric": "ablation_stage2_weights_2_3_5", "local": 0.8045, "recorded": 0.7981, "images": 4 },
+      { "metric": "ablation_both", "local": 0.8462, "recorded": 0.8429, "images": 2 }
+    ],
+    "inception_ablation_confirmed": true,
+    "per_model": [
+      { "name": "stage1_pneumonet_v1", "local_accuracy": 0.8285, "recorded_accuracy": 0.8285, "local_auc": 0.9453, "recorded_auc": 0.9456, "status": "exact" },
+      { "name": "stage1_pneumonet_v2", "local_accuracy": 0.8494, "recorded_accuracy": 0.8510, "local_auc": 0.9291, "recorded_auc": 0.9298, "status": "within_drift" },
+      { "name": "stage1_vgg16", "local_accuracy": 0.9054, "recorded_accuracy": 0.9119, "local_auc": 0.9667, "recorded_auc": 0.9690, "status": "within_drift" },
+      { "name": "stage1_inception", "local_accuracy": 0.6522, "recorded_accuracy": 0.6458, "local_auc": 0.8060, "recorded_auc": 0.7969, "status": "within_drift", "note": "Collapse reproduced: NORMAL recall 0.073, PNEUMONIA recall 1.000." },
+      { "name": "stage2_pneumonet_v1", "local_accuracy": 0.8205, "recorded_accuracy": 0.8205, "local_auc": 0.9385, "recorded_auc": 0.9396, "status": "exact" },
+      { "name": "stage2_mobilenet", "local_accuracy": 0.8282, "recorded_accuracy": 0.8513, "local_auc": 0.9347, "recorded_auc": 0.9370, "status": "discrepancy", "note": "The only model outside drift tolerance (-9 images, -0.0231). Ruled out as an AMP or device artefact: CPU, CUDA and CUDA-with-AMP-disabled all give 0.8256-0.8282. The recorded 0.8513 likely came from an earlier training run. It remains the strongest Stage 2 member either way, but by 0.0077 rather than 0.031." },
+      { "name": "stage2_xception", "local_accuracy": 0.7051, "recorded_accuracy": 0.7026, "local_auc": 0.7742, "recorded_auc": 0.7845, "status": "within_drift" }
+    ],
+    "open_question": "Whether to promote these locally verified figures to be the headline numbers, or keep the Colab figures and treat this block as corroboration. Retraining is explicitly out of scope, so whichever is chosen the models stay as they are."
   }
 }

@@ -35,7 +35,12 @@ from pneumonia.models import PneumoNetV1, PneumoNetV2
 from pneumonia.data import DatasetConfig, get_transforms
 from pneumonia.evaluate import compute_metrics, predict_probs
 from pneumonia.reporting import write_json
-from pneumonia.checkpoints import checkpoint_path
+from pneumonia.checkpoints import (
+    CHECKPOINTS,
+    checkpoint_path,
+    describe_inventory,
+    root_candidates,
+)
 from torchvision.datasets import ImageFolder
 from torch.utils.data import DataLoader
 
@@ -57,10 +62,16 @@ def load_model(model_name, weights_path, num_classes=2):
     return model
 
 
-def available_members(members, allow_missing=False):
-    """Keep only members whose weights file exists (see the ensemble scripts)."""
+def available_members(members, allow_missing=False, label=""):
+    """Keep only members whose weights file exists (see the ensemble scripts).
+
+    ``label`` prefixes each resolved path so the two stages stay distinguishable
+    when this is called twice in one run.
+    """
+    prefix = f"{label}: " if label else ""
     present, missing = {}, []
     for name, path in members.items():
+        print(f"  {prefix}{name:15s} <- {path}")
         if os.path.exists(path):
             present[name] = path
         else:
@@ -181,6 +192,10 @@ def main(argv=None):
                         help="Write the metrics of this run to a JSON file")
     args = parser.parse_args(argv)
 
+    print(f"Checkpoint root: {root_candidates()[0]}")
+    print(describe_inventory())
+    print()
+
     # Paper's published Stage 1 ensemble weights
     PAPER_WEIGHTS_STAGE1 = {
         "vgg16": 5,
@@ -192,25 +207,25 @@ def main(argv=None):
     # Stage 1 model paths (Normal vs Pneumonia). Override the root with
     # PNEUMONIA_CHECKPOINT_DIR when the files live elsewhere (e.g. Colab Drive).
     stage1_members = {
-        "pneumonet_v1": checkpoint_path("stage1_pneumonet_v1"),
-        "pneumonet_v2": checkpoint_path("stage1_pneumonet_v2"),
-        "vgg16": checkpoint_path("stage1_vgg16"),
-        "inception_v3": checkpoint_path("stage1_inception", "stage1_inception_v3"),
+        "pneumonet_v1": checkpoint_path(*CHECKPOINTS["stage1_pneumonet_v1"]),
+        "pneumonet_v2": checkpoint_path(*CHECKPOINTS["stage1_pneumonet_v2"]),
+        "vgg16": checkpoint_path(*CHECKPOINTS["stage1_vgg16"]),
+        "inception_v3": checkpoint_path(*CHECKPOINTS["stage1_inception"]),
     }
 
     # Stage 2 model paths (Bacterial vs Viral)
     stage2_members = {
         # "stage2_checkpoints" is the directory used by the first training run.
-        "pneumonet_v1": checkpoint_path("stage2_pneumonet_v1", "stage2_checkpoints"),
-        "mobilenet_v2": checkpoint_path("stage2_mobilenet"),
+        "pneumonet_v1": checkpoint_path(*CHECKPOINTS["stage2_pneumonet_v1"]),
+        "mobilenet_v2": checkpoint_path(*CHECKPOINTS["stage2_mobilenet"]),
         # Xception substitute
-        "inception_v3": checkpoint_path("stage2_xception", "stage2_inception_v3"),
+        "inception_v3": checkpoint_path(*CHECKPOINTS["stage2_xception"]),
     }
 
-    stage1_members = available_members(stage1_members, args.allow_missing)
+    stage1_members = available_members(stage1_members, args.allow_missing, label="stage1")
     if stage1_members is None:
         return 1
-    stage2_members = available_members(stage2_members, args.allow_missing)
+    stage2_members = available_members(stage2_members, args.allow_missing, label="stage2")
     if stage2_members is None:
         return 1
 

@@ -27,7 +27,12 @@ from pneumonia.transfer import TransferLearningModel
 from pneumonia.models import PneumoNetV1, PneumoNetV2
 from pneumonia.evaluate import compute_metrics, predict_probs
 from pneumonia.reporting import write_json
-from pneumonia.checkpoints import checkpoint_path
+from pneumonia.checkpoints import (
+    CHECKPOINTS,
+    checkpoint_path,
+    describe_inventory,
+    root_candidates,
+)
 
 
 def load_model(model_name, weights_path, num_classes=2):
@@ -54,15 +59,17 @@ def weighted_ensemble_probs(member_probs, weights):
     return (stacked * w[:, None, None]).sum(axis=0)
 
 
-def available_members(members, allow_missing=False):
+def available_members(members, allow_missing=False, label=""):
     """Keep only members whose weights file exists.
 
     Returns the filtered dict, or None when evaluation should stop. Without
     ``allow_missing`` any gap is fatal; with it, weights are renormalised over
     the members that are present (and the gap is reported loudly).
     """
+    prefix = f"{label}: " if label else ""
     present, missing = {}, []
     for name, path in members.items():
+        print(f"  {prefix}{name:15s} <- {path}")
         if os.path.exists(path):
             present[name] = path
         else:
@@ -94,6 +101,10 @@ def main(argv=None):
                         help="Write the metrics of this run to a JSON file")
     args = parser.parse_args(argv)
 
+    print(f"Checkpoint root: {root_candidates()[0]}")
+    print(describe_inventory())
+    print()
+
     # Paper's published Stage 1 ensemble weights
     PAPER_WEIGHTS = {
         "vgg16": 5,
@@ -105,10 +116,10 @@ def main(argv=None):
     # Paths to the four trained Stage 1 models. Override the root with
     # PNEUMONIA_CHECKPOINT_DIR when the files live elsewhere (e.g. Colab Drive).
     members = {
-        "pneumonet_v1": checkpoint_path("stage1_pneumonet_v1"),
-        "pneumonet_v2": checkpoint_path("stage1_pneumonet_v2"),
-        "vgg16": checkpoint_path("stage1_vgg16"),
-        "inception_v3": checkpoint_path("stage1_inception", "stage1_inception_v3"),
+        "pneumonet_v1": checkpoint_path(*CHECKPOINTS["stage1_pneumonet_v1"]),
+        "pneumonet_v2": checkpoint_path(*CHECKPOINTS["stage1_pneumonet_v2"]),
+        "vgg16": checkpoint_path(*CHECKPOINTS["stage1_vgg16"]),
+        "inception_v3": checkpoint_path(*CHECKPOINTS["stage1_inception"]),
     }
 
     members = available_members(members, args.allow_missing)

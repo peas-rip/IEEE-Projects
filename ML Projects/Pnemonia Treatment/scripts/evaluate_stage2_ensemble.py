@@ -24,7 +24,12 @@ from pneumonia.transfer import TransferLearningModel
 from pneumonia.models import PneumoNetV1
 from pneumonia.evaluate import compute_metrics, predict_probs
 from pneumonia.reporting import write_json
-from pneumonia.checkpoints import checkpoint_path
+from pneumonia.checkpoints import (
+    CHECKPOINTS,
+    checkpoint_path,
+    describe_inventory,
+    root_candidates,
+)
 
 
 def load_model(model_name, weights_path, num_classes=2):
@@ -84,14 +89,16 @@ def main(argv=None):
                         help="Write the metrics of this run to a JSON file")
     args = parser.parse_args(argv)
 
-    # Paths to the three trained Stage 2 models. Override the root with
-    # PNEUMONIA_CHECKPOINT_DIR when the files live elsewhere (e.g. Colab Drive).
+    print(f"Checkpoint root: {root_candidates()[0]}")
+    print(describe_inventory())
+    print()
+
     members = {
         # "stage2_checkpoints" is the directory used by the first training run.
-        "pneumonet_v1": checkpoint_path("stage2_pneumonet_v1", "stage2_checkpoints"),
-        "mobilenet_v2": checkpoint_path("stage2_mobilenet"),
+        "pneumonet_v1": checkpoint_path(*CHECKPOINTS["stage2_pneumonet_v1"]),
+        "mobilenet_v2": checkpoint_path(*CHECKPOINTS["stage2_mobilenet"]),
         # Xception substitute
-        "inception_v3": checkpoint_path("stage2_xception", "stage2_inception_v3"),
+        "inception_v3": checkpoint_path(*CHECKPOINTS["stage2_xception"]),
     }
     members = available_members(members, args.allow_missing)
     if members is None:
